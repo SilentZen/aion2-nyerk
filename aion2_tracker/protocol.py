@@ -255,20 +255,26 @@ class Soul:
     amount: int
 
 
-def parse_soul(pkt: bytes) -> Soul | None:
-    """`0d 90 01 <pet id u32 LE> <amount u32 LE>`. Identified 2026-10-09: one per soul, ~0.3 s after
-    the kill, 5/5 against marked Meadow Sparkie souls (pet 1006); party kills earn them too."""
+def parse_souls(pkt: bytes) -> list[Soul]:
+    """`0d 90 <count u8> (<pet id u32 LE> <amount u32 LE>) * count`. Identified 2026-10-09: ~0.3 s
+    after the kill, 5/5 against marked Meadow Sparkie souls (pet 1006); party kills earn them too.
+    Souls for two pets on the same tick come as one record of 2 (ursus_lv3.pcap, 2026-10-22: Burned
+    Forester and Ashen Ursus, `0d 90 02 74 04 00 00 01 00 00 00 77 04 00 00 01 00 00 00`); reading
+    only records of 1 lost both, which is how pets reached Lv3 in game a few souls early."""
     if opcode(pkt) != OP_SOUL:
-        return None
+        return []
     _, vlen = read_varint(pkt, 0)
     b = pkt[vlen + 2 :]
-    if len(b) < 9 or b[0] != 0x01:
-        return None
-    pet = int.from_bytes(b[1:5], "little")
-    amount = int.from_bytes(b[5:9], "little")
-    if not 0 < amount < 1000:
-        return None
-    return Soul(pet, amount)
+    if not b or not 0 < b[0] <= 64 or len(b) < 1 + 8 * b[0]:
+        return []
+    souls = []
+    for i in range(b[0]):
+        entry = b[1 + 8 * i : 9 + 8 * i]
+        amount = int.from_bytes(entry[4:8], "little")
+        if not 0 < amount < 1000:
+            return []
+        souls.append(Soul(int.from_bytes(entry[:4], "little"), amount))
+    return souls
 
 
 OP_CRYSTAL = (0x11, 0x90)  # sent only to you: genus crystals, from a monster whose pet is maxed

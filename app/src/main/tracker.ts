@@ -298,6 +298,7 @@ function handleLine(line: string): void {
         levelUp: ev['levelUp'] === true,
         crystal: false,
       }
+      if (ev['levelUndone'] === true) log(`level: pet ${pet.id}${pet.name ? ` (${pet.name})` : ''} got a soul, so it is not Lv3: back to Lv${pet.level}, its crystals since taken off`)
       if (toast.levelUp) log(`level up: pet ${pet.id}${pet.name ? ` (${pet.name})` : ''} is now Lv${pet.level}`)
       broadcast('tracker:soul', toast)
       for (const fn of soulListeners) fn(toast)

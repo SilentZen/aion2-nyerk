@@ -47,17 +47,20 @@ export const useApp = defineStore('app', () => {
   const kinaTimeline = computed(() => kinaSeries(kina.value, now.value))
   /**
    * The collection's search, sort and filter pills. Kept here, not in the tab: the tab is rebuilt
-   * after a pet's map closes, and the filters used to reset with it.
+   * after a pet's map closes, and the filters used to reset with it. Each group takes several
+   * pills at once; an empty list is "All".
    */
   const collectionView = reactive({
     query: '',
     sort: 'souls' as 'souls' | 'name' | 'level' | 'recent' | 'range',
-    filter: 'all' as 'all' | 'nearby' | 'pinned' | 'unfinished' | 'session',
-    genus: null as Genus | null,
-    continent: null as Continent | null,
+    filter: [] as ('nearby' | 'pinned' | 'unfinished' | 'session')[],
+    genus: [] as Genus[],
+    continent: [] as Continent[],
   })
   /** The pet whose drop locations the panel is showing, if any. */
   const openPetId = ref<number | null>(null)
+  /** Whether the panel is showing the collection's map (its filtered pets); a pet opened from it comes back to it. */
+  const collectionMapOpen = ref(false)
 
   const pets = computed(() => [...petMap.value.values()])
   const sessionSouls = computed(() => pets.value.reduce((n, p) => n + p.session, 0))
@@ -172,16 +175,24 @@ export const useApp = defineStore('app', () => {
     return settings.value.hideMaxed && (petMap.value.get(id)?.level ?? 0) >= MAX_LEVEL
   }
 
-  /** Show a pet's drop locations; the panel grows to fit the map while it is open. */
+  /** The panel grows to fit a map while one is open: a pet's, or the collection's. */
+  const mapShown = (): boolean => openPetId.value !== null || collectionMapOpen.value
+  function showMaps(change: () => void): void {
+    const was = mapShown()
+    change()
+    if (was !== mapShown()) void bridge().invoke('panel:setExpanded', mapShown())
+  }
+  /** Show a pet's drop locations. */
   function openPet(id: number | null): void {
-    if (openPetId.value === id) return
-    const wasOpen = openPetId.value !== null
-    openPetId.value = id
-    if (wasOpen !== (id !== null)) void bridge().invoke('panel:setExpanded', id !== null)
+    if (openPetId.value !== id) showMaps(() => (openPetId.value = id))
+  }
+  /** Show (or leave) the collection's map: the pets its filters show, on your zone's map. */
+  function openCollectionMap(open: boolean): void {
+    if (collectionMapOpen.value !== open) showMaps(() => (collectionMapOpen.value = open))
   }
 
   return {
-    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update, addons,
-    init, set, setHud, togglePin, openPet, hiddenPet,
+    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, collectionMapOpen, nearby, update, addons,
+    init, set, setHud, togglePin, openPet, openCollectionMap, hiddenPet,
   }
 })

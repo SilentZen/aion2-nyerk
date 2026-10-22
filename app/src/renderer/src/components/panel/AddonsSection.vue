@@ -4,6 +4,7 @@
 // come with Nyerk (the PvP Log, the Timers) are listed first, and switch without asking.
 import { computed, ref } from 'vue'
 import Button from '@/components/Button.vue'
+import Select from '@/components/Select.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import Slider from '@/components/Slider.vue'
 import Toggle from '@/components/Toggle.vue'
@@ -117,14 +118,12 @@ const found = (n: number): string => (n === 0 ? 'No addons in the folder.' : n =
               :format="(v: number) => v.toLocaleString('en-US')"
               @update:model-value="setSetting(addon, def.key, $event)"
             />
-            <select
+            <Select
               v-else-if="def.type === 'select'"
-              :value="addon.values[def.key]"
-              class="h-7 rounded-md border border-light bg-default px-2 text-sm"
-              @change="setSetting(addon, def.key, ($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="o in def.options" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
+              :model-value="addon.values[def.key] as string"
+              :options="def.options"
+              @update:model-value="setSetting(addon, def.key, $event)"
+            />
             <input
               v-else
               :value="addon.values[def.key]"

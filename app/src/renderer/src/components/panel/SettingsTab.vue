@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import Button from '@/components/Button.vue'
 import AddonsSection from '@/components/panel/AddonsSection.vue'
+import Select from '@/components/Select.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import Slider from '@/components/Slider.vue'
 import Toggle from '@/components/Toggle.vue'
@@ -14,6 +15,14 @@ const info = ref<{ version: string; settingsFile: string; logFile: string } | nu
 onMounted(async () => (info.value = await bridge().invoke('app:info')))
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`
+const FACTIONS = [
+  { value: 'elyos', label: 'Elyos' },
+  { value: 'asmodians', label: 'Asmodian' },
+] as const
+const HUD_MODES = [
+  { value: 'recent', label: "This session's pets" },
+  { value: 'pinned', label: 'Pinned pets' },
+] as const
 
 const updateText = computed(() => {
   const u = store.update
@@ -48,14 +57,11 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
       <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-darkest">You</h3>
       <div class="divide-y divide-[color:var(--gray-4)] rounded-lg border border-card bg-card px-3">
         <SettingRow label="Your side" hint="Its zones are listed first where a soul drops.">
-          <select
-            :value="store.settings.faction"
-            class="h-7 rounded-md border border-light bg-default px-2 text-sm"
-            @change="store.set('faction', ($event.target as HTMLSelectElement).value as 'elyos' | 'asmodians')"
-          >
-            <option value="elyos">Elyos</option>
-            <option value="asmodians">Asmodian</option>
-          </select>
+          <Select
+            :model-value="store.settings.faction"
+            :options="FACTIONS"
+            @update:model-value="store.set('faction', $event)"
+          />
         </SettingRow>
         <SettingRow label="Hide maxed (Lv3) pets" hint="They earn no more souls: left out of the collection, Nearby and the HUD.">
           <Toggle :model-value="store.settings.hideMaxed" @update:model-value="store.set('hideMaxed', $event)" />
@@ -88,14 +94,11 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
           label="Below it"
           :hint="{ pinned: 'Pin pets in the Collection tab.', recent: 'Pets you gained souls for, latest first.' }[store.settings.hud.mode]"
         >
-          <select
-            :value="store.settings.hud.mode"
-            class="h-7 rounded-md border border-light bg-default px-2 text-sm"
-            @change="store.setHud({ mode: ($event.target as HTMLSelectElement).value as 'recent' | 'pinned' })"
-          >
-            <option value="recent">This session's pets</option>
-            <option value="pinned">Pinned pets</option>
-          </select>
+          <Select
+            :model-value="store.settings.hud.mode"
+            :options="HUD_MODES"
+            @update:model-value="store.setHud({ mode: $event })"
+          />
         </SettingRow>
         <SettingRow v-if="store.settings.hud.mode !== 'pinned'" label="How many this session">
           <Slider :model-value="store.settings.hud.recentCount" :min="1" :max="8" :step="1" @update:model-value="store.setHud({ recentCount: $event })" />

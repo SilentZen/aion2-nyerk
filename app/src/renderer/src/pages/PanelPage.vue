@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AddonFrame from '@/components/AddonFrame.vue'
 import CollectionTab from '@/components/panel/CollectionTab.vue'
 import PetDetail from '@/components/panel/PetDetail.vue'
+import CollectionMap from '@/components/panel/CollectionMap.vue'
 import SessionTab from '@/components/panel/SessionTab.vue'
 import PvpLogTab from '@/components/panel/PvpLogTab.vue'
 import SettingsTab from '@/components/panel/SettingsTab.vue'
@@ -60,8 +61,9 @@ const restartIn = computed(() => {
 const hide = (): void => void bridge().invoke('panel:hide')
 const onKey = (e: KeyboardEvent): void => {
   if (e.key !== 'Escape' || e.target instanceof HTMLInputElement) return
-  // Escape backs out of a pet's map first, then hides the panel.
+  // Escape backs out of a pet's map first, then the collection's map, then hides the panel.
   if (store.openPetId !== null) store.openPet(null)
+  else if (store.collectionMapOpen) store.openCollectionMap(false)
   else hide()
 }
 // A pet clicked in the merchant window: its drop locations, as a click in the collection opens.
@@ -76,6 +78,7 @@ onMounted(() => {
   offShowTimers = bridge().on('panel:showTimers', (ids) => {
     if (!builtinOn(store.settings.addons.enabled, 'timers')) return
     store.openPet(null)
+    store.openCollectionMap(false)
     tab.value = 'timers'
     store.timerFocus = { ids, at: Date.now() }
   })
@@ -148,7 +151,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <nav v-if="store.openPetId === null" :class="['flex border-b border-card pt-1.5', TABS.length > 5 ? 'gap-0.5 px-1.5' : 'gap-1 px-2']">
+    <nav v-if="store.openPetId === null && !store.collectionMapOpen" :class="['flex border-b border-card pt-1.5', TABS.length > 5 ? 'gap-0.5 px-1.5' : 'gap-1 px-2']">
       <button
         v-for="t in TABS"
         :key="t.id"
@@ -168,9 +171,10 @@ onBeforeUnmount(() => {
     </nav>
 
     <!-- An addon's page scrolls itself, inside its frame. -->
-    <main :class="['min-h-0 flex-1', addonTab && store.openPetId === null ? 'overflow-hidden' : 'overflow-y-auto']">
+    <main :class="['min-h-0 flex-1', addonTab && store.openPetId === null && !store.collectionMapOpen ? 'overflow-hidden' : 'overflow-y-auto']">
       <div v-if="!store.ready" class="p-6 text-center text-sm text-darker">Loading…</div>
       <PetDetail v-else-if="store.openPetId !== null" :id="store.openPetId" />
+      <CollectionMap v-else-if="store.collectionMapOpen" />
       <CollectionTab v-else-if="tab === 'collection'" />
       <SessionTab v-else-if="tab === 'session'" />
       <TimersTab v-else-if="tab === 'timers'" />

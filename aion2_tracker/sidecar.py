@@ -14,7 +14,9 @@ stdout, one JSON object per line (nothing else is ever written there):
     {"type": "heartbeat", "lastPacketAgo": 1.2}         every 2 s while capturing: seconds since
                                                         the last game packet
     {"type": "sync", "pets": 119, "souls": 938, "corrected": [...], "collection": [...]}
-    {"type": "soul", "amount": 1, "pet": {...}, "levelUp": false}
+    {"type": "soul", "amount": 1, "pet": {...}, "levelUp": false, "levelUndone": false}
+                                                        levelUndone: the pet a crystal had put
+                                                        at Lv3 was not (it got this soul)
     {"type": "crystal", "amount": 1, "genus": "fera" | "cogni" | null, "pet": {...} | null,
      "npc": 2100006 | null, "raw": "01 01 ...", "levelCorrected": false,
      "kills": [{"npc", "name", "pet", "ago"}]}     kills considered, when credited to no pet

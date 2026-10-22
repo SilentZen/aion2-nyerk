@@ -34,6 +34,12 @@ STORE = Path(__file__).resolve().parents[1] / "collection.json"
 LEVEL_NEED = (5, 25, 75)
 MAX_LEVEL = 3
 NAME_WINDOW_S = 1.5
+# A pet that got a soul this recently is not at Lv3 in game: a crystal does not correct it...
+SOUL_PROOF_S = 600.0
+# ...unless this many crystals in a row, with no soul for it between, are its monsters' alone: a
+# pet reaching Lv3 gets its last soul seconds before its first crystal (2026-10-22: Black Ash
+# Basilisk, saved at 72/75 with 3 souls missed, its kills then gave ~47 crystals to no one).
+CRYSTAL_RUN = 3
 # A "combat" event at most this often: the overlay only needs to know fighting is going on.
 COMBAT_EVERY_S = 5.0
 # How soon after a login sync the record naming the character comes (same frame bundle in the
@@ -158,6 +164,11 @@ class Tracker:
                 print(f"level: pet {pid} was past its threshold, now Lv{pet['level']} with {pet['souls']}", file=sys.stderr)
         # Which entity is you: the player credited with the kills just before your souls.
         self.credits: collections.deque = collections.deque(maxlen=32)  # (ts, mob, player entity)
+        # When each pet last got a soul: proof it is below Lv3.
+        self.last_soul: dict[int, float] = {}
+        # The crystals since each pet's last soul that only its monsters' kills explain, and how
+        # many they gave: a run of them puts it at Lv3 (CRYSTAL_RUN).
+        self.crystal_run: dict[int, tuple[int, int]] = {}
         self.last_combat = float("-inf")
         # The collection as it was before the last login sync, and that sync: the sync comes just
         # before the record that says who you are, so a switch of character moves it across.
@@ -245,10 +256,15 @@ class Tracker:
                     self._my_legion(self.legions[credit.killer])
             if credit.player_victim:
                 self._pvp_kill(ts, credit)
-        if soul := P.parse_soul(pkt):
-            self._soul(ts, soul)
+        if souls := P.parse_souls(pkt):
+            for soul in souls:
+                # Two pets' souls in one record: the kill just before cannot say which is whose.
+                self._soul(ts, soul, vote=len(souls) == 1)
         elif crystal := P.parse_crystal(pkt):
             self._crystal(ts, crystal)
+        elif P.opcode(pkt) in (P.OP_SOUL, P.OP_CRYSTAL):
+            # One not read is a soul or crystal lost: the raw record, to learn its layout from.
+            print(f"unread {P.opcode(pkt)[0]:02x} {P.opcode(pkt)[1]:02x} record: {pkt.hex(' ')}", file=sys.stderr)
         elif (kina := P.parse_kina(pkt)) is not None:
             # The balance as is: the app works out what was earned (and per hour) from the changes.
             self.on_event({"type": "kina", "ts": ts, "balance": kina})
@@ -411,6 +427,8 @@ class Tracker:
             entry["guild"] = who.guild
         self.data["current"] = who.name
         self.session = self.sessions.setdefault(who.name, collections.Counter())
+        self.last_soul.clear()
+        self.crystal_run.clear()
         self._save()
         print(f"character: {who.name}" + (f" (was {old})" if old else ""), file=sys.stderr)
         self.before_sync = None
@@ -478,17 +496,29 @@ class Tracker:
             if pid in coll.levels:
                 pet["level"] = coll.levels[pid]
                 pet.pop("levelEstimated", None)
+                pet.pop("corrected", None)  # the game's level now, nothing to undo
         self._save()
         self.on_event({"type": "sync", "ts": ts, "pets": len(coll.souls), "souls": sum(coll.souls.values()),
                        "corrected": corrected})
 
-    def _soul(self, ts: float, soul: P.Soul) -> None:
+    def _soul(self, ts: float, soul: P.Soul, vote: bool = True) -> None:
         pet = self._pet(soul.pet_id)
+        self.last_soul[soul.pet_id] = ts
+        self.crystal_run.pop(soul.pet_id, None)
+        # A soul for a pet a crystal put at Lv3: it was not, so that is undone (its level and
+        # souls back, the crystals it was given taken off).
+        undone = False
+        if (was := pet.pop("corrected", None)) and (pet.get("level") or 0) >= MAX_LEVEL:
+            pet["level"], pet["souls"] = was["level"], was["souls"]
+            if was.get("levelEstimated"):
+                pet["levelEstimated"] = True
+            pet["crystals"] = max(0, pet.get("crystals", 0) - was["crystals"])
+            undone = True
         pet["souls"] += soul.amount
         levelled = level_up(pet)
         # Vote for the nearest kill before the soul (kill credit comes ~0.3 s before it).
         near = [(ts - t, m) for t, m in self.recent if 0 <= ts - t <= NAME_WINDOW_S]
-        if near:
+        if near and vote:
             code = self.mob_code.get(min(near)[1])
             name = self.npcs.get(str(code), {}).get("name")
             if name:
@@ -500,36 +530,48 @@ class Tracker:
             self.self_votes[min(credited)[1]] += 1
         self._save()
         self.on_event({"type": "soul", "ts": ts, "amount": soul.amount, "pet": self.view(soul.pet_id),
-                       "levelUp": levelled})
+                       "levelUp": levelled, "levelUndone": undone})
 
     def _crystal(self, ts: float, crystal: P.Crystal) -> None:
         """Genus crystals from a monster whose pet is maxed. The message names no pet, so it is
         the pet of a monster killed just before (yours if it is known which player you are), of
         the crystal's genus. Among those:
-        - a pet already at Lv3 (as the login sync said) is it: the nearest such kill;
-        - else, if they are all one pet's monsters, that pet is at Lv3 already in game, whatever
-          was saved (souls it got and the tracker missed): it is corrected and credited
-          (2026-10-11: Dracuni Herbalist, Lv3 in game, saved as Lv2 with 70);
+        - a pet already at Lv3 (as the login sync said) is it: the nearest such kill, yours
+          first, else anyone's (a party member's kill gives you its crystal too);
+        - else, if every such kill around (anyone's) is one pet's monster, and that pet got no soul
+          lately, that pet is at Lv3 already in game, whatever was saved (souls it got and the
+          tracker missed): it is corrected and credited (2026-10-11: Dracuni Herbalist, Lv3 in
+          game, saved as Lv2 with 70). A soul later undoes it (see _soul);
         - else no one: two pets that could both be it (2026-10-10, a Foul Skama and a Marsh
           Targon dying together, had put the Skama's crystal on the Targon and marked it Lv3).
+        Only your kills counted for the correction once: in a party, your Lv2 pet's monster dying
+        beside a party member's maxed one was taken to be Lv3 (2026-10-19: Naga Elite Priest,
+        Sulfur Skama and two more, all getting souls right after).
         """
         genus = P.CRYSTAL_GENUS.get(crystal.genus)
-        credited = [(ts - t, mob, owner) for t, mob, owner in self.credits if 0 <= ts - t <= NAME_WINDOW_S]
+        kills = [(ts - t, mob, owner) for t, mob, owner in self.credits if 0 <= ts - t <= NAME_WINDOW_S]
         me = self.self_id()
-        kills = [c for c in credited if c[2] == me] or credited
-        # (seconds before, monster code, pet) for each kill whose monster drops a pet of this genus.
+        # (seconds before, monster code, pet, yours) for each kill whose monster drops a pet of this genus.
         candidates = []
-        for ago, mob, _owner in kills:
+        for ago, mob, owner in kills:
             code = self.mob_code.get(mob)
             pid = self.droppers.get(code) if code else None
             if pid is not None and (genus is None or self.genera.get(pid) in (None, genus)):
-                candidates.append((ago, code, pid))
+                candidates.append((ago, code, pid, me is None or owner == me))
         maxed = [c for c in candidates if self._maxed(c[2])]
-        pick, corrected = None, False
+        pick, corrected, amount = None, False, crystal.amount
         if maxed:
-            pick = min(maxed)
+            pick = min([c for c in maxed if c[3]] or maxed)
         elif candidates and len({c[2] for c in candidates}) == 1:
-            pick, corrected = min(candidates), True
+            pid = candidates[0][2]
+            n, given = self.crystal_run.get(pid, (0, 0))
+            n, given = n + 1, given + crystal.amount
+            if ts - self.last_soul.get(pid, float("-inf")) > SOUL_PROOF_S or n >= CRYSTAL_RUN:
+                # The run's earlier crystals, which went to no one, are its too.
+                pick, corrected, amount = min(candidates), True, given
+                self.crystal_run.pop(pid, None)
+            else:
+                self.crystal_run[pid] = (n, given)
         event = {"type": "crystal", "ts": ts, "amount": crystal.amount, "genus": genus,
                  "npc": pick[1] if pick else None, "raw": crystal.raw.hex(" "), "pet": None,
                  "levelCorrected": False,
@@ -539,13 +581,19 @@ class Tracker:
                       "pet": self.droppers.get(self.mob_code.get(mob)), "ago": round(ago, 2)}
                      for ago, mob, _owner in kills]}
         if pick:
-            _ago, code, pid = pick
+            _ago, code, pid, _mine = pick
             pet = self._pet(pid)
             if corrected:
+                # What it was, for a soul to undo this with.
+                pet["corrected"] = {"level": pet.get("level") or 0, "souls": pet["souls"],
+                                    "levelEstimated": pet.get("level") is None or bool(pet.get("levelEstimated")),
+                                    "crystals": 0}
                 pet["level"], pet["souls"] = MAX_LEVEL, 0
                 pet.pop("levelEstimated", None)
                 event["levelCorrected"] = True
-            pet["crystals"] = pet.get("crystals", 0) + crystal.amount
+            pet["crystals"] = pet.get("crystals", 0) + amount
+            if "corrected" in pet:
+                pet["corrected"]["crystals"] += amount
             if name := self._npc_name(code):
                 pet["votes"][name] = pet["votes"].get(name, 0) + 1
             self._save()

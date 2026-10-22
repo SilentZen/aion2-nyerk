@@ -6,6 +6,7 @@
 // here. Times not yet checked against the game are marked unconfirmed.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Button from '@/components/Button.vue'
+import Select from '@/components/Select.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import Slider from '@/components/Slider.vue'
 import Toggle from '@/components/Toggle.vue'
@@ -20,7 +21,6 @@ import {
   REGIONS,
   TIMERS,
   type AlarmSound,
-  type Region,
   type TimerDef,
   type TimerId,
 } from '@shared/timers.ts'
@@ -163,6 +163,9 @@ function setSound(id: TimerId, sound: AlarmSound): void {
   set({ sounds: { ...cfg.value.sounds, [id]: sound } })
   playChime(cfg.value.volume, sound)
 }
+const SOUND_OPTIONS = ALARM_SOUNDS.map((s) => ({ value: s.id as AlarmSound, label: s.label }))
+const REGION_OPTIONS = REGIONS.map((r) => ({ value: r.id, label: `${r.label}${r.confirmed ? '' : ' (unconfirmed)'}` }))
+const leadOptions = (def: TimerDef) => leadChoices(def).map((m) => ({ value: m, label: leadLabel(m) }))
 /** "at start", "5 min", "1 h": how early an alert comes. */
 const leadLabel = (m: number): string => (m === 0 ? 'at start' : m < 60 ? `${m} min` : `${m / 60} h`)
 const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -236,36 +239,30 @@ const shownCount = computed(() => TIMERS.filter((d) => shown(d.id)).length)
                 />
               </div>
               <div v-if="cfg.enabled[r.def.id]" class="flex items-center gap-1">
-                <select
-                  :value="cfg.lead[r.def.id]"
-                  class="h-6 w-[66px] rounded-md border border-light bg-default px-1 text-[11px]"
+                <Select
+                  :model-value="cfg.lead[r.def.id]"
+                  :options="leadOptions(r.def)"
+                  size="xs"
+                  class="w-[66px]"
                   title="How early to alert"
-                  @change="setLead(r.def.id, Number(($event.target as HTMLSelectElement).value))"
-                >
-                  <option v-for="m in leadChoices(r.def)" :key="m" :value="m">{{ leadLabel(m) }}</option>
-                </select>
-                <!-- A native menu over the speaker icon: the icon shows, the menu opens on a click. -->
-                <label
-                  :class="[
-                    'relative flex size-6 items-center justify-center rounded-md border border-light bg-default text-darker',
-                    cfg.sound ? 'hover:text-default' : 'opacity-50',
-                  ]"
+                  @update:model-value="setLead(r.def.id, $event)"
+                />
+                <!-- The speaker opens the sound menu. -->
+                <Select
+                  :model-value="cfg.sounds[r.def.id]"
+                  :options="SOUND_OPTIONS"
+                  size="xs"
+                  :disabled="!cfg.sound"
+                  aria-label="Alert sound"
+                  class="flex size-6 items-center justify-center rounded-md border border-light bg-default text-darker hover:text-default aria-expanded:border-accent aria-expanded:text-default disabled:opacity-50 disabled:hover:text-darker"
                   :title="cfg.sound ? `Sound: ${soundLabel(cfg.sounds[r.def.id])}` : 'Sound is off (below)'"
+                  @update:model-value="setSound(r.def.id, $event)"
                 >
                   <svg viewBox="0 0 16 16" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                     <path d="M2.5 6h2l3-2.5v9L4.5 10h-2z" stroke-linejoin="round" />
                     <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6 6 0 0 1 0 9" stroke-linecap="round" />
                   </svg>
-                  <select
-                    :value="cfg.sounds[r.def.id]"
-                    :disabled="!cfg.sound"
-                    aria-label="Alert sound"
-                    class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
-                    @change="setSound(r.def.id, ($event.target as HTMLSelectElement).value as AlarmSound)"
-                  >
-                    <option v-for="o in ALARM_SOUNDS" :key="o.id" :value="o.id">{{ o.label }}</option>
-                  </select>
-                </label>
+                </Select>
               </div>
             </div>
           </li>
@@ -317,13 +314,7 @@ const shownCount = computed(() => TIMERS.filter((d) => shown(d.id)).length)
       <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-darkest">Alerts</h3>
       <div class="divide-y divide-[color:var(--gray-4)] rounded-lg border border-card bg-card px-3">
         <SettingRow label="Server region" hint="Weekly events (the siege) are at your region's own time.">
-          <select
-            :value="cfg.region"
-            class="h-7 rounded-md border border-light bg-default px-2 text-sm"
-            @change="set({ region: ($event.target as HTMLSelectElement).value as Region })"
-          >
-            <option v-for="r in REGIONS" :key="r.id" :value="r.id">{{ r.label }}{{ r.confirmed ? '' : ' (unconfirmed)' }}</option>
-          </select>
+          <Select :model-value="cfg.region" :options="REGION_OPTIONS" @update:model-value="set({ region: $event })" />
         </SettingRow>
         <SettingRow label="Sound" hint="When an alert starts; each timer picks its own sound in its row.">
           <Toggle :model-value="cfg.sound" @update:model-value="set({ sound: $event })" />

@@ -14,6 +14,7 @@ the game's traffic is only readable on the tunnel adapter, which is not Windows'
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -37,10 +38,11 @@ HOLD_YOUNG_S = 10.0
 class Reassembler:
     """One flow's byte stream: in-order payloads appended, packets split off the front."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_gap: Callable[[int], None] | None = None) -> None:
         self.buf = b""
         self.next_seq: int | None = None
         self.pending: dict[int, bytes] = {}
+        self.on_gap = on_gap  # told how many bytes were skipped each time the stream gives up on a gap
 
     def feed(self, seq: int, data: bytes) -> list[bytes]:
         if self.next_seq is None:
@@ -87,8 +89,10 @@ class Reassembler:
 
     def _resync(self) -> None:
         # Lost a segment for good: drop what is buffered and restart at the earliest held one.
-        self.buf = b""
         first = min(self.pending, key=lambda s: (s - self.next_seq) & 0xFFFFFFFF)
+        if self.on_gap is not None:
+            self.on_gap(((first - self.next_seq) & 0xFFFFFFFF) + len(self.buf))
+        self.buf = b""
         self.next_seq = first
 
 
@@ -163,7 +167,12 @@ class GameStream:
         self.held_bytes[key] = self.held_bytes.get(key, 0) + len(seg[2])
 
     def _feed(self, key, ts: float, seq: int, data: bytes) -> None:
-        flow = self.flows.setdefault(key, Reassembler())
+        if key not in self.flows:
+            # A segment Npcap never delivered: whatever it carried (a soul, say) is lost, so the
+            # log says so (2026-10-22: pets reaching Lv3 a few souls before the tracker said).
+            self.flows[key] = Reassembler(lambda n: print(
+                f"[capture] lost {n} bytes of the game stream (segments never captured)", file=sys.stderr))
+        flow = self.flows[key]
         for pkt in flow.feed(seq, data):
             self.on_packet(ts, pkt)
 
