@@ -1,31 +1,41 @@
 # Nyerk
 
-A Windows overlay that counts your Aion 2 Pet Collection souls as they drop, so you don't have
-to keep opening the Pets menu.
+A Windows overlay for Aion 2: it counts your Pet Collection souls as they drop, tracks your daily
+and weekly tasks, and times the game's events and field bosses, all without touching the game.
 
-- **Live counts:** every soul is counted the moment it drops, with level-ups (5 → 25 → 75) and the
-  genus crystals that maxed (Lv3) pets give instead.
-- **Login sync:** when you enter the world, your whole collection is taken from the game, so the
-  counts always match the Pets menu.
-- **In-game HUD:** a small click-through overlay with nearby soul monsters, this fight's pets and
-  a feed of drops. It clears itself between fights.
-- **Collection panel:** every pet with its genus, level and progress; search, filter, pin pets to
-  the HUD, and see where each soul drops on a map.
-- **Kina per hour:** this session's Kina rate with a timeline, in the panel and on the HUD.
+<p align="center">
+  <img src="assets/collection.png" width="400" alt="The Collection panel">
+  <img src="assets/hud.png" width="302" alt="The in-game HUD">
+</p>
+<p align="center">
+  <img src="assets/minimap.png" width="513" alt="The Collection map as a minimap">
+</p>
+
+- **Live soul counts:** every soul is counted the moment it drops, with level-ups (5 → 25 → 75)
+  and the genus crystals that maxed (Lv3) pets give instead. Your whole collection syncs from the
+  game at login, so it always matches the Pets menu.
+- **In-game HUD:** a small click-through overlay with nearby soul monsters, this fight's pets, a
+  feed of drops and your Kina per hour. It clears itself between fights.
+- **Collection panel:** every pet with its genus, level and progress. Search, combine filters,
+  sort by what's nearest you, and pin pets to the HUD.
+- **Maps and minimap:** see where each soul drops, and every pet your filters leave in your zone.
+  Shrink the map into a small minimap that stays over the game.
+- **Task List:** daily, weekly, event and Season tasks for each character. Keys, tickets and
+  Odyle Energy are read from the game, with when each stock fills.
 - **Timers:** the game's events (Shugo Festival, the Black Cloud Merchant, rifts, the siege…) and
-  the field bosses of Verteron, Altgard and Lower Reshanta, read from the map's field boss list,
-  with optional alerts. Field boss times are shared between players so they stay right when you
-  have not opened the map.
+  the field bosses of Verteron, Altgard and Lower Reshanta, with optional alerts. Field boss times
+  are shared between players, so they stay right even when you haven't opened the map.
+- **PvP Log:** the kills around you, with a Server vs Server score against each enemy server.
 - **Black Cloud Merchant:** when you open one of its tabs, a window lists the pets it sells that
-  you have not maxed, with where their soul monsters spawn.
-- **One collection per character:** switching to an alt shows that character's pets.
+  you haven't maxed, and where their soul monsters spawn.
+- **Make it yours:** the panel can be resized, and Timers, Task List and PvP Log are addons you can
+  switch off in Settings → Addons.
+- **One collection per character:** switching to an alt shows that character's pets and tasks.
 - **Stays out of the way:** it sits in the tray and sleeps while Aion 2 is closed, waking when the
   game starts.
-- And whatever else I randomly find useful while I play Aion2. :D
+- And whatever else I randomly find useful while I play Aion 2. :D
 
 [Nyerk Discord](https://discord.gg/tjJkjDzbbU) - Timers and support.
-
-![The collection panel and the in-game HUD](assets/screenshot.webp)
 
 ## How it works
 
