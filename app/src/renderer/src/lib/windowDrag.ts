@@ -14,7 +14,7 @@ const CLICK_SLOP = 4
 export type WindowDragOptions = {
   onClick?: () => void
 } & (
-  | { move: 'bubble:moveTo' | 'hud:moveTo' | 'merchant:moveTo' | 'killfeed:moveTo'; end: 'bubble:dragEnd' | 'hud:dragEnd' | 'merchant:dragEnd' | 'killfeed:dragEnd' }
+  | { move: 'bubble:moveTo' | 'hud:moveTo' | 'merchant:moveTo' | 'killfeed:moveTo' | 'map:moveTo'; end: 'bubble:dragEnd' | 'hud:dragEnd' | 'merchant:dragEnd' | 'killfeed:dragEnd' | 'map:dragEnd' }
   /** An addon's detached HUD: the calls name the addon. */
   | { move: 'addonHud:moveTo'; end: 'addonHud:dragEnd'; addon: string }
 )

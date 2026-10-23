@@ -56,6 +56,16 @@ def load_droppers(path: Path | None = None) -> dict[int, int]:
     return {d["npc"]: int(pid) for pid, droppers in pets.items() for d in droppers}
 
 
+def load_dropper_worlds(path: Path | None = None) -> dict[int, tuple[int, ...]]:
+    """Soul monster code -> the zones (questlog.gg world ids) it spawns in. Empty if missing."""
+    path = path or spawns_default()
+    try:
+        pets = json.loads(Path(path).read_text(encoding="utf-8"))["pets"]
+    except (OSError, ValueError, KeyError):
+        return {}
+    return {d["npc"]: tuple(w["world"] for w in d.get("worlds", [])) for droppers in pets.values() for d in droppers}
+
+
 @dataclass
 class Kill:
     ts: float

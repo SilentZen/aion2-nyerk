@@ -3,10 +3,10 @@
  * the store's collectionView. Shared by the Collection tab and its map, so both show the same pets.
  */
 import { computed, toRefs } from 'vue'
-import { currentWorld, nearbyPets, petContinents, petDistance, useSpawns, type NearbyPet } from '@/lib/spawns.ts'
+import { nearbyPets, petContinents, petDistance, useSpawns, type NearbyPet } from '@/lib/spawns.ts'
 import { displayName, GENUS_LABEL, petInfo, type Genus } from '@/lib/petDb.ts'
 import { useApp } from '@/stores/app.ts'
-import { blankPet, MAX_LEVEL, type Pet } from '@shared/tracker.ts'
+import { blankPet, MAX_LEVEL, totalSouls, type Pet } from '@shared/tracker.ts'
 
 export function useCollectionList() {
   const store = useApp()
@@ -54,10 +54,10 @@ export function useCollectionList() {
    * Range: how far your last known position is from each pet's nearest soul monster spawn in your
    * zone. The tracker learns the position on entering a zone, teleporting, and from your own skills;
    * null for a pet with no spawns in your zone, or while the position is not known. The zone is the
-   * last zone load's, else (a tracker started mid-session) the one the soul monsters around you spawn in.
+   * tracker's (Nearby's `world`), as everything else takes it.
    */
   const here = computed(() => {
-    const world = spawns.value ? currentWorld(store.nearby, spawns.value) : store.nearby.world
+    const world = store.nearby.world
     return world !== null && store.nearby.position ? { world, at: store.nearby.position } : null
   })
   const distance = (id: number): number | null =>
@@ -94,16 +94,16 @@ export function useCollectionList() {
       return haystack.some((h) => h.toLowerCase().includes(q))
     })
     const by: Record<typeof sort.value, (a: Pet, b: Pet) => number> = {
-      souls: (a, b) => b.souls - a.souls,
+      souls: (a, b) => totalSouls(b) - totalSouls(a),
       name: (a, b) => displayName(a).localeCompare(displayName(b)),
-      level: (a, b) => b.level - a.level || b.souls - a.souls,
-      recent: (a, b) => b.session - a.session || b.souls - a.souls,
+      level: (a, b) => b.level - a.level || totalSouls(b) - totalSouls(a),
+      recent: (a, b) => b.session - a.session || totalSouls(b) - totalSouls(a),
       // Nearest first; pets with no spawn in your zone after them, by souls.
       range: (a, b) => {
         const da = distance(a.id)
         const db = distance(b.id)
         if (da !== null && db !== null) return da - db
-        return (da === null ? 1 : 0) - (db === null ? 1 : 0) || b.souls - a.souls
+        return (da === null ? 1 : 0) - (db === null ? 1 : 0) || totalSouls(b) - totalSouls(a)
       },
     }
     const nearFirst = (a: Pet, b: Pet): number =>

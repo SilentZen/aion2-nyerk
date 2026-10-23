@@ -8,7 +8,16 @@ import { updates } from './update.ts'
 import { appVersion } from './version.ts'
 import {
   bubbleDragEnded,
+  closeMap,
   closeMerchant,
+  getPanelEdges,
+  mapDragEnded,
+  mapState,
+  moveMap,
+  resizePanel,
+  setCollectionView,
+  setMapMinimap,
+  showMap,
   hidePanel,
   hudDragEnded,
   addonHudDragEnded,
@@ -26,9 +35,7 @@ import {
   resizeHud,
   resizeMerchant,
   setHudEditing,
-  setPanelExpanded,
   setPanelTab,
-  showPetInPanel,
   showTimersInPanel,
   togglePanel,
 } from './windows.ts'
@@ -87,7 +94,10 @@ export function registerIpc(): void {
   handle('bubble:dragEnd', () => bubbleDragEnded())
   handle('panel:toggle', () => togglePanel())
   handle('panel:hide', () => hidePanel())
-  handle('panel:setExpanded', (expanded) => setPanelExpanded(Boolean(expanded)))
+  handle('panel:edges', () => getPanelEdges())
+  handle('panel:resize', (size, end) => {
+    if (isPoint({ x: size?.width, y: size?.height })) resizePanel(size, Boolean(end))
+  })
   handle('panel:tab', (tab) => {
     // An app tab, or an addon's (`addon:<id>`).
     if (typeof tab === 'string' && /^(?:[a-z]{1,20}|addon:[a-z0-9][a-z0-9-]{0,39})$/.test(tab)) setPanelTab(tab)
@@ -136,8 +146,27 @@ export function registerIpc(): void {
     timers.dismiss()
     showTimersInPanel(ids)
   })
-  handle('panel:showPet', (pet) => {
-    if (Number.isInteger(pet)) showPetInPanel(pet)
+  handle('map:showPet', (pet) => {
+    if (Number.isInteger(pet)) showMap({ kind: 'pet', pet })
+  })
+  handle('map:showCollection', () => showMap({ kind: 'collection' }))
+  handle('map:get', () => mapState())
+  handle('map:moveTo', (to) => {
+    if (isPoint(to)) moveMap(to)
+  })
+  handle('map:dragEnd', () => mapDragEnded())
+  handle('map:close', () => closeMap())
+  handle('map:minimap', (on) => setMapMinimap(on))
+  handle('collection:view', (view) => {
+    const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 20) : [])
+    if (typeof view !== 'object' || view === null) return
+    setCollectionView({
+      query: typeof view.query === 'string' ? view.query.slice(0, 100) : '',
+      sort: typeof view.sort === 'string' ? view.sort.slice(0, 20) : 'souls',
+      filter: strings(view.filter),
+      genus: strings(view.genus),
+      continent: strings(view.continent),
+    })
   })
 
   handle('addons:get', () => addons.status())

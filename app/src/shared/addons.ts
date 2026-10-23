@@ -8,16 +8,17 @@
  * - the Python part (`sidecar`) runs inside the tracker helper with its full access, so a feature
  *   that needs packets the public helper does not decode can still be an addon.
  *
- * Some addons come with Nyerk (app/addons/, BUILTIN_ADDONS): their manifest says `"builtin": true`
- * and the app's own code does the work, switched on until the user switches it off. They make the
- * app's optional features (the PvP Log, the Timers) switchable like any other addon.
+ * Some addons come with Nyerk (app/addons/). The built-in ones (BUILTIN_ADDONS) say `"builtin": true`
+ * and the app's own code does the work: they make the app's optional features (the PvP Log, the
+ * Timers) switchable like any other addon. Which of the addons that come with Nyerk start switched
+ * on is the app's choice, never a manifest's (DEFAULT_ON_ADDONS).
  *
  * `ADDON_API_VERSION` is the contract an addon's `nyerk` range is checked against. Its major
  * version changes only when something addons rely on stops working the same way.
  */
 import { compareVersions } from './bundle.ts'
 
-export const ADDON_API_VERSION = '1.1.0'
+export const ADDON_API_VERSION = '1.3.0'
 
 /**
  * Addons' pages load from `nyerk-addon://<id>/<path>`, and the SDK from the same origin, under
@@ -47,7 +48,7 @@ export const ADDON_PERMISSIONS = {
   'events:kina': 'Your Kina',
   'events:fieldBosses': 'Field boss timers',
   'events:pvp': 'The PvP kill feed',
-  'events:timers': 'Timer alerts',
+  'events:timers': 'Timers: their alerts, next starts and the resets',
   notify: 'Chime and shake the bubble',
   storage: 'Keep its own data',
 } as const
@@ -56,14 +57,29 @@ export type AddonPermission = keyof typeof ADDON_PERMISSIONS
 
 /**
  * The app's features that come as addons, by id. Their code is the app's own; the addon is what
- * switches it on or off. On until switched off, so a profile from before them keeps every feature.
+ * switches it on or off.
  */
 export const BUILTIN_ADDONS = ['pvp-log', 'timers'] as const
 export type BuiltinAddon = (typeof BUILTIN_ADDONS)[number]
 const isBuiltinId = (id: string): id is BuiltinAddon => (BUILTIN_ADDONS as readonly string[]).includes(id)
 
-/** Whether a built-in addon is on, from the user's choices (`Settings.addons.enabled`). */
-export const builtinOn = (enabled: Record<string, boolean>, id: BuiltinAddon): boolean => enabled[id] !== false
+/**
+ * The addons that come with Nyerk and start switched on, until the user switches them. Only the app
+ * says so: an addon in the user's folder never starts on, whatever its id. Every other addon starts
+ * off, the PvP Log included since the Task List came (main/builtins.ts keeps it on for those who
+ * already used it).
+ */
+export const DEFAULT_ON_ADDONS: readonly string[] = ['timers', 'task-list']
+
+/**
+ * Whether an addon is on: the user's choice (`Settings.addons.enabled`), else whether it came with
+ * Nyerk (`bundled`) and is one of DEFAULT_ON_ADDONS.
+ */
+export const addonOn = (enabled: Record<string, boolean>, id: string, bundled: boolean): boolean =>
+  enabled[id] ?? (bundled && DEFAULT_ON_ADDONS.includes(id))
+
+/** Whether a built-in addon is on (they always come with Nyerk). */
+export const builtinOn = (enabled: Record<string, boolean>, id: BuiltinAddon): boolean => addonOn(enabled, id, true)
 
 export const isAddonId = (v: unknown): v is string => typeof v === 'string' && ID.test(v)
 
@@ -84,6 +100,7 @@ export const ADDON_EVENTS = {
   'tracker:pvp': { name: 'pvp', permission: 'events:pvp' },
   'tracker:pvpKill': { name: 'pvpKill', permission: 'events:pvp' },
   'timers:alert': { name: 'timerAlert', permission: 'events:timers' },
+  'timers:state': { name: 'timers', permission: 'events:timers' },
 } as const satisfies Record<string, { name: string; permission: AddonPermission }>
 
 /** Names an addon's Python part may not emit under: they are the app's. */
@@ -163,7 +180,8 @@ export interface AddonManifest {
   /** Paths inside the addon's folder, with forward slashes. */
   sidecar: string | null
   background: string | null
-  tab: { label: string; page: string } | null
+  /** `icon`: an .svg, the tab's face in the panel, drawn in the tab's colour (1.3). */
+  tab: { label: string; page: string; icon: string | null } | null
   /** A section of the HUD: a page drawn in the overlay, below the app's own, while it is shown. */
   hud: { page: string } | null
   permissions: AddonPermission[]
@@ -260,7 +278,9 @@ export function parseManifest(source: string, api: string = ADDON_API_VERSION, b
     const label = text(t['label'], 20)
     const page = addonPath(t['page'], '.html')
     if (!label || !page) return fail('its tab needs a label and an .html page inside its folder')
-    tab = { label, page }
+    const icon = t['icon'] === undefined ? null : addonPath(t['icon'], '.svg')
+    if (t['icon'] !== undefined && !icon) return fail("its tab's icon must be an .svg file inside its folder")
+    tab = { label, page, icon }
   }
   let hud: AddonManifest['hud'] = null
   if (m['hud'] !== undefined) {
@@ -338,7 +358,7 @@ export interface AddonInfo {
   permissions: AddonPermission[]
   network: string[]
   /** The panel tab it adds, if any. */
-  tab: { label: string; page: string } | null
+  tab: { label: string; page: string; icon: string | null } | null
   /**
    * Its HUD section, if any; whether it is shown, and detached into a window of its own (its page
    * switches both: nyerk.hud.show, nyerk.hud.detach).
@@ -357,7 +377,7 @@ export interface AddonInfo {
   error: string | null
   /** It came with Nyerk (app/addons/), not from the addons folder. */
   bundled: boolean
-  /** Its work is done by the app's own code (BUILTIN_ADDONS): on unless switched off. */
+  /** Its work is done by the app's own code (BUILTIN_ADDONS). */
   builtin: boolean
 }
 
@@ -462,19 +482,16 @@ export function resolveAddons(
       values: settingValues(m.settings, stored[m.id]),
       builtin: m.builtin,
     }
-    const missing = [m.sidecar, m.background, m.tab?.page, m.hud?.page].find((p) => p && !exists(f.folder, p))
+    const missing = [m.sidecar, m.background, m.tab?.page, m.tab?.icon, m.hud?.page].find((p) => p && !exists(f.folder, p))
     const twin = taken.get(m.id)
     if (twin) {
       out.push({ ...info, state: 'invalid', problem: `the folder ${twin} has the same id (${m.id})` })
     } else if (missing) {
       taken.set(m.id, f.folder)
       out.push({ ...info, state: 'invalid', problem: `${missing} is missing` })
-    } else if (m.builtin) {
-      taken.set(m.id, f.folder)
-      out.push({ ...info, state: builtinOn(enabled, m.id as BuiltinAddon) ? 'on' : 'off' })
     } else {
       taken.set(m.id, f.folder)
-      out.push({ ...info, state: enabled[m.id] === true ? 'on' : 'off', isNew: !bundled && !(m.id in enabled) })
+      out.push({ ...info, state: addonOn(enabled, m.id, bundled) ? 'on' : 'off', isNew: !bundled && !(m.id in enabled) })
     }
   }
   return out

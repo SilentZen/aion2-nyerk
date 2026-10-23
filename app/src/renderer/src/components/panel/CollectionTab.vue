@@ -142,7 +142,7 @@ function commit(): void {
         type="button"
         class="flex size-8 shrink-0 items-center justify-center rounded-md border border-light bg-default text-darker transition hover:border-accent hover:text-accent"
         title="Show these pets on the map"
-        @click="store.openCollectionMap(true)"
+        @click="store.showCollectionMap()"
       >
         <svg viewBox="0 0 16 16" class="size-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
           <path d="M1.5 3.5l4-1.5 5 1.5 4-1.5v10.5l-4 1.5-5-1.5-4 1.5z M5.5 2v10.5 M10.5 3.5V14" />
@@ -248,7 +248,7 @@ function commit(): void {
         :key="pet.id"
         class="group flex cursor-pointer gap-2.5 px-3 py-2 transition hover:bg-dark"
         title="Show where its souls drop"
-        @click="store.openPet(pet.id)"
+        @click="store.showPetMap(pet.id)"
       >
         <PetIcon :id="pet.id" :size="38" class="mt-0.5" />
         <div class="min-w-0 flex-1">

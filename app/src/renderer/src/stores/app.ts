@@ -10,6 +10,7 @@ import { kinaPerHour, kinaSeries, NO_KINA, type KinaSession } from '@shared/kina
 import type { FieldBosses, TimerAlert, TimerId } from '@shared/timers.ts'
 import { initialUpdateStatus, type UpdateStatus } from '@shared/update.ts'
 import type { AddonsStatus } from '@shared/addons.ts'
+import type { CollectionView } from '@shared/ipc.ts'
 import { bridge } from '@/lib/bridge.ts'
 import type { Genus } from '@/lib/petDb.ts'
 import type { Continent } from '@/lib/spawns.ts'
@@ -46,9 +47,9 @@ export const useApp = defineStore('app', () => {
   /** Kina per hour over time, for the sparklines. */
   const kinaTimeline = computed(() => kinaSeries(kina.value, now.value))
   /**
-   * The collection's search, sort and filter pills. Kept here, not in the tab: the tab is rebuilt
-   * after a pet's map closes, and the filters used to reset with it. Each group takes several
-   * pills at once; an empty list is "All".
+   * The collection's search, sort and filter pills. Kept here, not in the tab, so the map window's
+   * collection map can follow them: the panel sends every change to main, which passes it on.
+   * Each group takes several pills at once; an empty list is "All".
    */
   const collectionView = reactive({
     query: '',
@@ -57,10 +58,12 @@ export const useApp = defineStore('app', () => {
     genus: [] as Genus[],
     continent: [] as Continent[],
   })
-  /** The pet whose drop locations the panel is showing, if any. */
+  /** The map window: the pet whose drop locations it is showing, if any. */
   const openPetId = ref<number | null>(null)
-  /** Whether the panel is showing the collection's map (its filtered pets); a pet opened from it comes back to it. */
+  /** The map window: showing the collection's map (its filtered pets); a pet opened from it comes back to it. */
   const collectionMapOpen = ref(false)
+  /** The map window: the collection's map as a minimap, only the map in a small window. */
+  const mapMinimap = ref(false)
 
   const pets = computed(() => [...petMap.value.values()])
   const sessionSouls = computed(() => pets.value.reduce((n, p) => n + p.session, 0))
@@ -175,24 +178,35 @@ export const useApp = defineStore('app', () => {
     return settings.value.hideMaxed && (petMap.value.get(id)?.level ?? 0) >= MAX_LEVEL
   }
 
-  /** The panel grows to fit a map while one is open: a pet's, or the collection's. */
-  const mapShown = (): boolean => openPetId.value !== null || collectionMapOpen.value
-  function showMaps(change: () => void): void {
-    const was = mapShown()
-    change()
-    if (was !== mapShown()) void bridge().invoke('panel:setExpanded', mapShown())
-  }
-  /** Show a pet's drop locations. */
+  /** In the map window: show a pet's drop locations (null: back to the collection's map). */
   function openPet(id: number | null): void {
-    if (openPetId.value !== id) showMaps(() => (openPetId.value = id))
+    openPetId.value = id
   }
-  /** Show (or leave) the collection's map: the pets its filters show, on your zone's map. */
+  /** In the map window: show (or leave) the collection's map, the pets its filters show. */
   function openCollectionMap(open: boolean): void {
-    if (collectionMapOpen.value !== open) showMaps(() => (collectionMapOpen.value = open))
+    collectionMapOpen.value = open
+  }
+  /** In the map window: the collection's map as a minimap, or back to the full window. */
+  function setMapMinimap(on: boolean): void {
+    if (on === mapMinimap.value) return
+    mapMinimap.value = on
+    void bridge().invoke('map:minimap', on)
+  }
+  /** From any other window: open the map window on a pet's drop locations. */
+  function showPetMap(id: number): void {
+    void bridge().invoke('map:showPet', id)
+  }
+  /** From the Collection tab: open the map window on the pets its filters show. */
+  function showCollectionMap(): void {
+    void bridge().invoke('map:showCollection')
+  }
+  /** In the map window: the Collection tab's filters, as the panel last had them. */
+  function applyCollectionView(v: CollectionView): void {
+    Object.assign(collectionView, v)
   }
 
   return {
-    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, collectionMapOpen, nearby, update, addons,
-    init, set, setHud, togglePin, openPet, openCollectionMap, hiddenPet,
+    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, collectionMapOpen, mapMinimap, nearby, update, addons,
+    init, set, setHud, togglePin, openPet, openCollectionMap, setMapMinimap, showPetMap, showCollectionMap, applyCollectionView, hiddenPet,
   }
 })

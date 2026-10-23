@@ -17,7 +17,7 @@
  */
 import { app, protocol, shell } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
-import { extname, join, resolve, sep } from 'node:path'
+import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import {
   ADDON_BACKGROUND_PAGE,
   ADDON_EVENTS,
@@ -39,6 +39,7 @@ import type { EventChannel } from '../shared/ipc.ts'
 import { SDK_CSS, SDK_JS } from './addonSdk.ts'
 import { broadcast, tapBroadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
+import { timers } from './timers.ts'
 import { log, tracker } from './tracker.ts'
 import { setAddonHost, setAddonHuds } from './windows.ts'
 
@@ -187,7 +188,30 @@ function startWatch(): void {
 
 /** `--addon <id>=<file>` for each Python part switched on. */
 function sidecarArgs(): string[] {
-  return list.filter((a) => a.state === 'on' && a.sidecar && a.id).flatMap((a) => ['--addon', `${a.id}=${join(rootOf(a), a.sidecar!)}`])
+  return list.filter((a) => a.state === 'on' && a.sidecar && a.id).flatMap((a) => ['--addon', `${a.id}=${sidecarPath(a)}`])
+}
+
+/**
+ * Where the helper runs an addon's Python part from. One that comes with Nyerk sits inside the
+ * app's archive (app.asar, or an update bundle's), which only Electron can read: the .py files
+ * beside its sidecar are copied out to `<userData>/addon-code/<id>/` first, at every start, so an
+ * update's replace the old ones.
+ */
+function sidecarPath(a: AddonInfo): string {
+  const file = join(rootOf(a), a.sidecar!)
+  if (!a.bundled) return file
+  const from = dirname(file)
+  const out = join(app.getPath('userData'), 'addon-code', a.id!)
+  try {
+    mkdirSync(out, { recursive: true })
+    for (const name of readdirSync(from)) {
+      if (name.endsWith('.py')) writeFileSync(join(out, name), readFileSync(join(from, name)))
+    }
+    return join(out, basename(file))
+  } catch (error) {
+    log(`addon ${a.id}: could not copy its Python part out of the app: ${String(error)}`)
+    return file
+  }
 }
 
 /** What the helper was last started with, to tell when it must start again. */
@@ -289,6 +313,7 @@ function snapshot(addon: AddonInfo): {
     ['events:kina', 'kina', () => tracker.kina()],
     ['events:fieldBosses', 'fieldBosses', () => tracker.fieldBosses()],
     ['events:pvp', 'pvp', () => tracker.pvp()],
+    ['events:timers', 'timers', () => timers.state()],
   ]
   const events = state.filter(([p]) => allowed(addon, p)).map(([, name, get]) => ({ name, data: get() }))
   for (const [name, data] of emitted.get(addon.id!) ?? []) events.push({ name, data })
@@ -464,15 +489,22 @@ function serve(request: Request): Response {
   try {
     const body = readFileSync(file)
     const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream'
-    return new Response(new Uint8Array(body), { headers: { ...headers, 'content-type': type } })
+    // The tab's icon is drawn by the panel as a CSS mask, which loads it with CORS.
+    const shared = safe === addon.tab?.icon ? { 'access-control-allow-origin': '*' } : {}
+    return new Response(new Uint8Array(body), { headers: { ...headers, ...shared, 'content-type': type } })
   } catch {
     return notFound()
   }
 }
 
-/** Before the app is ready (Electron's rule): the scheme behaves like https, with fetch. */
+/**
+ * Before the app is ready (Electron's rule): the scheme behaves like https, with fetch. CORS lets
+ * the panel load a tab's icon (the one file `serve` shares).
+ */
 export function registerAddonScheme(): void {
-  protocol.registerSchemesAsPrivileged([{ scheme: ADDON_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }])
+  protocol.registerSchemesAsPrivileged([
+    { scheme: ADDON_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  ])
 }
 
 // ---- the API --------------------------------------------------------------------------------

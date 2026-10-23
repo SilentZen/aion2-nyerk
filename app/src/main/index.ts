@@ -6,6 +6,7 @@ import { app } from 'electron'
 import { addons, registerAddonScheme } from './addons.ts'
 import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
+import { keepPvpLogOn } from './builtins.ts'
 import { startFieldBosses } from './fieldBosses.ts'
 import { startHealthWatch } from './health.ts'
 import { registerIpc } from './ipc.ts'
@@ -52,6 +53,7 @@ if (!app.requestSingleInstanceLock()) {
     startOnTopWatch()
     registerIpc()
     createTray()
+    if (keepPvpLogOn()) log('addons: PvP Log kept on (it now starts off; this profile has a pvp.json)')
     addons.start()
 
     settings.onChanged((all) => {

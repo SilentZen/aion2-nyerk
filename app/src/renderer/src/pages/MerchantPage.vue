@@ -71,8 +71,8 @@ const restockIn = computed(() => {
 
 const drag = windowDrag({ move: 'merchant:moveTo', end: 'merchant:dragEnd' })
 const close = (): void => void bridge().invoke('merchant:close')
-/** Where the pet's soul monsters spawn: the panel's map of it, as the collection shows it. */
-const showPet = (id: number): void => void bridge().invoke('panel:showPet', id)
+/** Where the pet's soul monsters spawn: the map window on it, as a click in the collection opens. */
+const showPet = (id: number): void => store.showPetMap(id)
 
 /** Tell main how big the window is; nothing worth buying measures 0, and main keeps it hidden. */
 let sent = ''

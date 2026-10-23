@@ -85,9 +85,15 @@ def walk(buf: bytes, *, inner: bool = False) -> tuple[list[tuple[int, int]], int
             off += 1
             continue
         if off + total > len(buf):
+            # A big length is most likely a misread, so it is skipped rather than waited for;
+            # a bundle's (FF FF after it) is real. A server handoff (a Spacetime rift, joining
+            # another continent) sends the new area in one bundle of over 16 KB, and skipping
+            # it read its LZ4 bytes as frames and lost the zone load behind it.
             if not inner and total > MAX_FRAGMENT_WAIT_BYTES:
-                off += 1
-                continue
+                marker = buf[off + vlen : off + vlen + 2]
+                if len(marker) == 2 and marker != b"\xff\xff":
+                    off += 1
+                    continue
             break
         frames.append((off, off + total))
         off += total

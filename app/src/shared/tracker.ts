@@ -48,9 +48,12 @@ export interface TrackerStatus {
 
 /** What is loaded around you, from the tracker: monsters by code, your zone and position. */
 export interface Nearby {
-  /** The zone (questlog.gg world id), from the last zone load; null until one is seen. */
+  /**
+   * The zone (questlog.gg world id): the last zone load's, else (started mid-session) the one the
+   * soul monsters around you spawn in; null while neither says. The one zone every view and addon uses.
+   */
   world: number | null
-  /** Where you are, in the map data's coordinates; from zone loads, teleports and your casts. */
+  /** Where you are, in the map data's coordinates; from zone loads, teleports, effects on you and your casts. */
   position: [number, number] | null
   /** When the position last changed (ms since epoch, stamped by main); null while unknown. */
   positionAt: number | null
@@ -104,6 +107,11 @@ export const LEVEL_NEED = [5, 25, 75] as const
 /** The souls the current level needs, or null once capped. */
 export function nextLevelSouls(pet: Pick<Pet, 'level' | 'souls'>): number | null {
   return pet.level >= MAX_LEVEL ? null : (LEVEL_NEED[pet.level] ?? null)
+}
+
+/** All the souls a pet has taken, the levels it finished plus the count in the current one. */
+export function totalSouls(pet: Pick<Pet, 'level' | 'souls'>): number {
+  return LEVEL_NEED.slice(0, Math.min(pet.level, MAX_LEVEL)).reduce((n, need) => n + need, 0) + pet.souls
 }
 
 /**

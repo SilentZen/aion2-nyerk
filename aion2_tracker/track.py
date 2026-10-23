@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import capture, protocol as P
-from .analyze import NPCS_DEFAULT, load_droppers, load_genera, loot_owner_records
+from .analyze import NPCS_DEFAULT, load_dropper_worlds, load_droppers, load_genera, loot_owner_records
 
 STORE = Path(__file__).resolve().parents[1] / "collection.json"
 # Souls to go from Lv0 to 1, 1 to 2 and 2 to 3. The count the Pets menu shows restarts at 0 on each
@@ -53,6 +53,13 @@ CAST_RANGE = 2500.0
 # reached 5,400/s, mounted or dashing, in pvp_kills.pcap).
 MAX_SPEED = 10_000.0
 MAX_JUMP_S = 2.0
+# A monster in view is named by some record (its movement, the `1d 37` that comes while it stands,
+# hits) every few seconds: the median monster's longest silence 1-3 s, the 99th percentile 32 s, the
+# longest 57 s, over ~1,800 monsters in seven captures (2026-10-22). Silent this long, it is taken
+# to have left without its `42 36` reaching us (a segment the capture lost: about 20 a session in
+# tracker.log) and goes out of Nearby. Short, so a stale one goes quickly; one taken out wrongly
+# comes back with the next record naming it.
+GONE_SILENT_S = 15.0
 
 
 def load(path: Path = STORE) -> dict:
@@ -133,12 +140,15 @@ def print_event(ev: dict) -> None:
 class Tracker:
     def __init__(self, data: dict, npcs: dict, persist: bool = True,
                  on_event: Callable[[dict], None] = print_event, store: Path = STORE,
-                 droppers: dict[int, int] | None = None, genera: dict[int, str] | None = None):
+                 droppers: dict[int, int] | None = None, genera: dict[int, str] | None = None,
+                 dropper_worlds: dict[int, tuple[int, ...]] | None = None):
         self.data, self.npcs, self.persist, self.on_event, self.store = data, npcs, persist, on_event, store
         # Monster code -> the pet it drops: how a crystal, which names no pet, finds one.
         self.droppers = load_droppers() if droppers is None else droppers
         # Pet -> genus: a crystal's genus must match its pet's.
         self.genera = load_genera() if genera is None else genera
+        # Soul monster code -> the zones it spawns in: your zone before a zone load is seen.
+        self.dropper_worlds = load_dropper_worlds() if dropper_worlds is None else dropper_worlds
         self.mob_code: dict[int, int | None] = {}
         self.recent: collections.deque = collections.deque(maxlen=64)  # (ts, mob entity)
         # Each character's session counts; `session` is the one playing.
@@ -149,7 +159,14 @@ class Tracker:
         # Around you: the monsters loaded in your view (entity -> mob code), your zone and your
         # position (x, -y: questlog.gg's convention, as the app's map data uses).
         self.visible: dict[int, int] = {}
+        self.heard: dict[int, float] = {}  # entity in view -> when a record last named it
+        self.swept = float("-inf")
+        self.silenced: dict[int, int] = {}  # entity taken out for its silence -> its mob code
         self.world: int | None = None
+        # The zone came from before an app update restart, not from a zone load: the field boss
+        # list or the soul monsters around you naming another zone replace it (a zone change the
+        # old version missed, or made while the app was closed, would otherwise stay until the next).
+        self.world_restored = False
         self.position: tuple[float, float] | None = None
         self.height: float | None = None  # your z, with the position where the record gives it
         # When the position last moved, and whether it is yours (zone load, teleport, an effect on
@@ -197,10 +214,13 @@ class Tracker:
                 self.addons.packet(ts, pkt)
 
     def _on_packet(self, ts: float, pkt: bytes) -> None:
+        self._hear(ts, pkt)
         if s := P.parse_spawn(pkt):
             self.mob_code[s.entity_id] = s.mob_code
             if s.mob_code:
                 self.visible[s.entity_id] = s.mob_code
+                self.heard[s.entity_id] = ts
+                self.silenced.pop(s.entity_id, None)
                 self.nearby_dirty = True
         for mob, owner, _name in loot_owner_records(pkt):
             if mob in self.mob_code:
@@ -213,15 +233,20 @@ class Tracker:
                 self.on_event({"type": "combat", "ts": ts})
         if d := P.parse_death(pkt):
             # Any 42 36 takes a monster out of view: 1 = out of range, 3 = killed, 7 = gone.
+            self.silenced.pop(d.entity_id, None)
             if self.visible.pop(d.entity_id, None) is not None:
+                self.heard.pop(d.entity_id, None)
                 self.nearby_dirty = True
             if d.flag == P.DEATH_FLAG_COMBAT and d.entity_id in self.mob_code:
                 self.recent.append((ts, d.entity_id))
         if m := P.parse_map_load(pkt):
             # A new zone: nothing from the last one is around you any more.
             self.world = m.world
+            self.world_restored = False
             self._move(ts, pkt, m.x, m.y, exact=True)
             self.visible.clear()
+            self.heard.clear()
+            self.silenced.clear()
             self.players.clear()
             self.legions.clear()
             self.nearby_dirty = True
@@ -269,6 +294,8 @@ class Tracker:
             # The balance as is: the app works out what was earned (and per hour) from the changes.
             self.on_event({"type": "kina", "ts": ts, "balance": kina})
         elif bosses := P.parse_field_bosses(pkt):
+            if self.world_restored and bosses.world != self.world:
+                self._unrestore(bosses.world)
             key = (bosses.world, tuple((b.id, b.up, b.at_ms) for b in bosses.bosses))
             if key != self.field_bosses:
                 self.field_bosses = key
@@ -281,6 +308,27 @@ class Tracker:
                            "items": [vars(i) for i in shop.items]})
         if coll := P.parse_collection(pkt):
             self._sync(ts, coll)
+
+    def _hear(self, ts: float, pkt: bytes) -> None:
+        """A record naming a monster in view (its entity first) says it is still there; once a
+        second, those not named for GONE_SILENT_S are taken out of view. One taken out that is named
+        again (moving, standing, hit) is back."""
+        body = P._body(pkt)
+        entity, n = P.read_varint(body, 0)
+        if n and entity in self.heard:
+            self.heard[entity] = ts
+        elif n and entity in self.silenced:
+            self.visible[entity] = self.silenced.pop(entity)
+            self.heard[entity] = ts
+            self.nearby_dirty = True
+        if ts - self.swept < 1.0:
+            return
+        self.swept = ts
+        for entity in [e for e, at in self.heard.items() if ts - at > GONE_SILENT_S]:
+            self.heard.pop(entity)
+            if (code := self.visible.pop(entity, None)) is not None:
+                self.silenced[entity] = code
+                self.nearby_dirty = True
 
     def _move(self, ts: float, pkt: bytes, x: float, y: float, exact: bool) -> None:
         """You are at game (x, y): kept as questlog.gg's (x, -y), with the height the record gives."""
@@ -297,13 +345,21 @@ class Tracker:
         return math.dist(self.position, (x, -y)) > MAX_SPEED * max(dt, 0.05)
 
     def forget_view(self) -> None:
-        """The game closed: nothing is around you any more, and entity ids start over."""
+        """The game closed: nothing is around you any more, and entity ids start over (yours too:
+        kept, an effect on whoever gets it next would place you)."""
         with self.lock:
             self.visible.clear()
+            self.heard.clear()
+            self.silenced.clear()
             self.mob_code.clear()
             self.credits.clear()
             self.self_votes.clear()
-            self.world = self.position = None
+            self.players.clear()
+            self.legions.clear()
+            self.self_entity = None
+            self.world = self.position = self.height = None
+            self.world_restored = False
+            self.position_ts = float("-inf")
             self.position_exact = False
             self.nearby_dirty = True
             if self.addons is not None:
@@ -322,13 +378,43 @@ class Tracker:
         best = self.self_votes.most_common(1)
         return best[0][0] if best else None
 
+    def current_world(self) -> int | None:
+        """Your zone: the last zone load's, else (started mid-session, no zone load seen yet) the one
+        the soul monsters around you spawn in. What the app and addons all take as your zone."""
+        with self.lock:
+            if self.world is not None and not self.world_restored:
+                return self.world
+            votes: collections.Counter = collections.Counter()
+            for code in self.visible.values():
+                for world in self.dropper_worlds.get(code, ()):
+                    votes[world] += 1
+            guess = votes.most_common(1)[0][0] if votes else None
+            if self.world_restored:
+                if guess is None or guess == self.world:
+                    return self.world
+                self._unrestore(None)  # back to guessing, as with no zone load seen
+        return guess
+
+    def _unrestore(self, world: int | None) -> None:
+        """The zone restored after an update restart is not yours: `world` is, as the field boss list
+        says (None: the soul monsters' guess takes over). The restored position was in the old zone,
+        so it goes too."""
+        self.world = world
+        self.world_restored = False
+        self.position = self.height = None
+        self.position_ts = float("-inf")
+        self.position_exact = False
+        self.nearby_dirty = True
+        self._zoned = world is not None
+
     def nearby(self) -> dict:
         """The monsters loaded around you, by mob code, with your zone, position and height."""
         with self.lock:
             self.nearby_dirty = False
             counts = collections.Counter(self.visible.values())
+            world = self.current_world()
         return {
-            "world": self.world,
+            "world": world,
             "position": [round(v) for v in self.position] if self.position else None,
             "height": round(self.height) if self.height is not None and self.position else None,
             "monsters": [{"npc": code, "count": n} for code, n in counts.most_common()],
@@ -364,6 +450,7 @@ class Tracker:
             self.session = self.sessions.setdefault(self.data.get("current"), collections.Counter())
             if self.world is None and isinstance(world, int):
                 self.world = world
+                self.world_restored = True
                 if isinstance(position, list) and len(position) == 2:
                     self.position = (float(position[0]), float(position[1]))
                 self.nearby_dirty = True

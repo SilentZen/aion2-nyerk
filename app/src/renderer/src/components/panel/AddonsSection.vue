@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Settings → Addons: the addons folder, a reload, and each addon found there with its switch and
 // the settings it declares. Switching one on asks first, listing what it may do. The addons that
-// come with Nyerk (the PvP Log, the Timers) are listed first, and switch without asking.
+// come with Nyerk (the PvP Log, the Timers, the Task List) are listed first, and switch without
+// asking.
 import { computed, ref } from 'vue'
 import Button from '@/components/Button.vue'
 import Select from '@/components/Select.vue'
@@ -30,7 +31,7 @@ async function reload(): Promise<void> {
 
 function toggle(addon: AddonInfo, on: boolean): void {
   if (!addon.id) return
-  if (on && !addon.builtin) confirming.value = addon.id
+  if (on && !addon.bundled) confirming.value = addon.id
   else void bridge().invoke('addons:setEnabled', addon.id, on)
 }
 

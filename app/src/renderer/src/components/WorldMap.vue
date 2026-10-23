@@ -12,7 +12,7 @@ export interface MapLayer {
   active: boolean
 }
 
-const props = defineProps<{ world: World; layers: MapLayer[]; focus: [number, number][]; you?: [number, number] | null }>()
+const props = defineProps<{ world: World; layers: MapLayer[]; focus: [number, number][]; you?: [number, number] | null; bare?: boolean }>()
 
 const SIZE = 1000
 const box = ref<HTMLElement | null>(null)
@@ -96,7 +96,7 @@ defineExpose({ fit })
 <template>
   <div
     ref="box"
-    class="relative h-full w-full cursor-grab touch-none overflow-hidden rounded-lg bg-[#c9bfa6] active:cursor-grabbing"
+    :class="['relative h-full w-full cursor-grab touch-none overflow-hidden bg-[#c9bfa6] active:cursor-grabbing', bare ? '' : 'rounded-lg']"
     @wheel="onWheel"
     @pointerdown="onPointerDown"
     @dblclick="fit"
@@ -136,7 +136,7 @@ defineExpose({ fit })
       </svg>
     </div>
     <div v-if="!loaded" class="absolute inset-0 flex items-center justify-center text-xs text-black/60">Loading map…</div>
-    <div class="pointer-events-none absolute bottom-1.5 right-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white/80">
+    <div v-if="!bare" class="pointer-events-none absolute bottom-1.5 right-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white/80">
       scroll to zoom · drag to pan · double-click to fit
     </div>
   </div>

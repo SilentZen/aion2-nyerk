@@ -20,7 +20,7 @@
  * Added 2026-10-13, from the same timer (next starts as it counted them) and guides:
  * - Siege Bosses: 30 minutes into each siege (Thursday 21:30 New York).
  * - Guardian Lord Nahma: Friday and Sunday at 21:00 server time (allthings.how, metabot.gg; the
- *   timer showed Friday 21:00 New York).
+ *   timer showed Friday 21:00 New York, and so did the game's map on 2026-10-23).
  * - Watcher Kaira: every 4 hours from 01:00 server time, since the 2026-09-02 patch (The Games
  *   Wiki; older guides say every 3 hours). The timer showed 01:00 New York, which either fits.
  * - Daily reset at 03:00 New York (07:00 UTC), weekly reset on Wednesday at the same time. That
@@ -229,9 +229,10 @@ export const TIMERS: TimerDef[] = [
     id: 'siegeBosses',
     name: 'Executors (siege bosses)',
     detail: 'Executor Tamasa, Argo and Kaira in Lower Reshanta, shortly after the siege',
-    // The map counted down to Thursday 21:30 UTC (2026-10-13); Monday and Saturday, the other siege
-    // days, are assumed.
-    schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21, 30)], zone: 'UTC' },
+    // 30 minutes after the siege: the map counted down to Saturday 21:30 New York (2026-10-23). On
+    // 2026-10-13 it had counted to Thursday 21:30 UTC; the game has moved it since. Monday and
+    // Thursday, the other siege days, are assumed.
+    schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21, 30)] },
     lead: 5,
     confirmed: false,
     defaultOn: false,
@@ -240,9 +241,9 @@ export const TIMERS: TimerDef[] = [
     id: 'nahma',
     name: 'Guardian Lord Nahma',
     detail: 'Abyss field boss in Lower Reshanta (three of them)',
-    // 21:00 UTC: the map counted down to Friday 21:00 UTC for all three (2026-10-13), where an
-    // outside timer had said 21:00 New York.
-    schedule: { kind: 'zoned', days: [0, 5], times: [hm(21)], zone: 'UTC' },
+    // 21:00 server time: the map counted down to Friday 21:00 New York for all three (2026-10-23).
+    // On 2026-10-13 it had counted to Friday 21:00 UTC; the game has moved it since.
+    schedule: { kind: 'zoned', days: [0, 5], times: [hm(21)] },
     lead: 10,
     confirmed: true,
     defaultOn: false,
@@ -337,6 +338,36 @@ export function nextStart(s: Schedule, from: number, region: Region = 'na-east',
     }
   }
   return Number.POSITIVE_INFINITY
+}
+
+/**
+ * What addons hear of the timers (the `timers` event, 'events:timers'): the next resets, and each
+ * timer's next start. Worked out here only, so an addon never keeps schedules of its own. The resets
+ * are there even while the Timers addon is switched off (`on`); the starts are not.
+ */
+export interface TimersState {
+  region: Region
+  /** The Timers addon is switched on. */
+  on: boolean
+  dailyReset: number
+  weeklyReset: number
+  /** Every timer's next start (ms), null when not known (a field boss nobody has seen die). */
+  next: { id: TimerId; name: string; at: number | null }[]
+}
+
+export function timersState(now: number, region: Region, on: boolean, bosses: FieldBosses = {}): TimersState {
+  const start = (id: TimerId): number => nextStart(TIMERS.find((t) => t.id === id)!.schedule, now, region)
+  const at = (t: TimerDef): number | null => {
+    const n = nextStart(t.schedule, now, region, bosses)
+    return Number.isFinite(n) ? n : null
+  }
+  return {
+    region,
+    on,
+    dailyReset: start('dailyReset'),
+    weeklyReset: start('weeklyReset'),
+    next: on ? TIMERS.map((t) => ({ id: t.id, name: t.name, at: at(t) })) : [],
+  }
 }
 
 /** The alert leads the player can pick, in minutes. */

@@ -87,7 +87,7 @@ const lastPacket = computed(() => {
         :key="pet.id"
         class="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm transition hover:bg-dark"
         title="Show where its souls drop"
-        @click="store.openPet(pet.id)"
+        @click="store.showPetMap(pet.id)"
       >
         <PetIcon :id="pet.id" :size="28" />
         <span class="flex min-w-0 flex-1 items-center gap-1.5">

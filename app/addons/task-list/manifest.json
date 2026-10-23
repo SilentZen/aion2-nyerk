@@ -1,0 +1,14 @@
+{
+  "id": "task-list",
+  "name": "Task List",
+  "version": "1.2.0",
+  "author": "xcrov",
+  "description": "Your daily, weekly, event and Season tasks for each of your characters: what's left before the reset, and when your stocks (Nightmare, Odyle Energy, keys) fill up. Reads the counts the game keeps where it can.",
+  "nyerk": "^1.2",
+  "sidecar": "detect.py",
+  "tab": { "label": "Tasks", "page": "tab.html", "icon": "icon.svg" },
+  "permissions": ["events:status", "events:timers", "storage"],
+  "settings": [
+    { "key": "optional", "type": "toggle", "label": "Show optional tasks", "hint": "Supply Requests, Hidden Cube keys, Abyss time and the like", "default": true }
+  ]
+}

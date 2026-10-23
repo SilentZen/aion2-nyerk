@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// One renderer, six windows (the sixth, `addons`, is hidden: addons' background scripts), and one per detached addon HUD: the hash says which one this is. Read once, from location rather
+// One renderer, seven windows (the seventh, `addons`, is hidden: addons' background scripts), and one per detached addon HUD: the hash says which one this is. Read once, from location rather
 // than a router, so a window never flashes another window's page (a marnis-app lesson).
 import { onMounted } from 'vue'
 import AddonHostPage from './pages/AddonHostPage.vue'
@@ -7,6 +7,7 @@ import AddonHudPage from './pages/AddonHudPage.vue'
 import BubblePage from './pages/BubblePage.vue'
 import HudPage from './pages/HudPage.vue'
 import KillFeedPage from './pages/KillFeedPage.vue'
+import MapPage from './pages/MapPage.vue'
 import MerchantPage from './pages/MerchantPage.vue'
 import PanelPage from './pages/PanelPage.vue'
 import { useApp } from './stores/app.ts'
@@ -21,6 +22,7 @@ onMounted(() => void store.init())
   <HudPage v-else-if="page === 'hud'" />
   <MerchantPage v-else-if="page === 'merchant'" />
   <KillFeedPage v-else-if="page === 'killfeed'" />
+  <MapPage v-else-if="page === 'map'" />
   <AddonHostPage v-else-if="page === 'addons'" />
   <AddonHudPage v-else-if="page.startsWith('addonhud/')" :addon="page.slice('addonhud/'.length)" />
   <PanelPage v-else />

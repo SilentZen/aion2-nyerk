@@ -1,0 +1,87 @@
+html, body { height: 100%; }
+body { overflow-y: auto; }
+.page { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+[hidden] { display: none !important; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.bar { display: flex; align-items: center; gap: 8px; }
+.bar #member { margin-left: auto; }
+
+/* The character switcher: the picked character, and a menu of every one seen. */
+.chars { position: relative; }
+.chars:empty { display: none; }
+.chars .current { max-width: 160px; display: inline-flex; align-items: center; gap: 6px; }
+.chars .current span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chars .current::after { content: '▾'; font-size: 10px; color: var(--text-darkest); }
+.chars .menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 200px; max-height: 280px;
+  overflow-y: auto; margin: 0; padding: 4px; list-style: none; box-shadow: 0 8px 24px -8px rgb(0 0 0 / .7);
+}
+.chars .menu button {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.chars .menu button:hover, .chars .menu button:focus-visible { background: #252735; outline: none; }
+.chars .menu button.on { color: var(--accent-text); }
+.chars .menu .server { margin-left: auto; font-size: 11px; color: var(--text-darkest); }
+.chars .dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; }
+.chars .dot.here { background: var(--green); }
+.tabs .n-pill b { margin-left: 6px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.reset { margin: 0; }
+.empty { margin: 0; padding: 24px 12px; text-align: center; font-size: 14px; }
+.note { margin: 0; font-size: 11px; }
+
+.groups { display: flex; flex-direction: column; gap: 12px; }
+.group summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.group summary::-webkit-details-marker { display: none; }
+.group summary::before { content: '▸'; font-size: 10px; color: var(--text-darkest); }
+.group[open] summary::before { content: '▾'; }
+.group summary .n-heading { margin: 0; }
+.group .n-card { margin-top: 4px; }
+.list { list-style: none; margin: 0; padding: 0; overflow: hidden; }
+/* Rows paint their own background, so one gliding past another (tab.js) covers it. */
+.list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; position: relative; overflow: hidden; background: inherit; }
+.list li.clickable { cursor: pointer; transition: background-color .15s; }
+.list li.clickable:hover { background-color: var(--bg-tile); }
+.list li + li { border-top: 1px solid #252735; }
+/* Done: down to its name, at the bottom of its group, so what is left stands out. */
+.list li.done { padding-top: 6px; padding-bottom: 6px; }
+.list li.done .text { opacity: .5; }
+.list li.done .name { text-decoration: line-through; text-decoration-color: var(--text-darkest); }
+
+.tick {
+  width: 18px; height: 18px; flex-shrink: 0; padding: 0; border-radius: 50%; border: 1.5px solid #606272;
+  background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.tick:hover { border-color: var(--accent-text); }
+.tick.on { background: var(--green); border-color: var(--green); }
+.tick.on::after { content: ''; width: 5px; height: 9px; border: solid #0e101d; border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.tick.stock { border-style: dashed; cursor: default; }
+.tick.stock.full { border: none; background: var(--orange); }
+
+.text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.name { font-weight: 500; }
+.detail { font-size: 12px; color: var(--text-darker); }
+.tip { font-size: 11px; color: var(--text-darkest); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-darkest); }
+.meta .badge { padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent-text); }
+.meta .warn { color: var(--orange); }
+.meta .bad { color: var(--red); }
+
+.amount { display: flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12px; color: var(--text-darker); font-variant-numeric: tabular-nums; }
+.amount .n-input { width: 52px; text-align: right; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.amount .n-input::-webkit-inner-spin-button { display: none; }
+.amount .step { width: 24px; padding: 0; }
+.amount .cap { min-width: 32px; }
+
+/* Read from the game (detect.py): a label, the recharge pool, and the count shown, not edited. */
+.meta .game { color: var(--green); }
+.meta .recharge { color: var(--blue); }
+.tick.read { cursor: default; border-style: solid; border-color: #3a3c4c; }
+.amount.count { padding: 0 4px; color: var(--text); font-size: 13px; }
+
+/* The eye at the end of a row: faint until the row is hovered; crossed out in the Hidden section. */
+.eye { width: 22px; height: 22px; padding: 0; justify-content: center; flex-shrink: 0; opacity: .35; transition: opacity .15s; }
+.list li:hover .eye, .eye:focus-visible, .eye:not(.on) { opacity: 1; }
+.eye svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.eye:not(.on) { color: var(--text-darkest); }

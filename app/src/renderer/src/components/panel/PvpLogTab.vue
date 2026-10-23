@@ -14,19 +14,56 @@ const kills = computed(() => [...store.pvp].reverse())
 const myServer = computed(() => store.status?.server ?? null)
 const tag = (server: number | null): string | null => (server === null || server === myServer.value ? null : serverTag(server))
 // One filter at a time; clicking the active one shows everything again.
-type Filter = 'mine' | 'legion'
+type Filter = 'mine' | 'legion' | 'server'
 const filters: { id: Filter; label: string; title: string; empty: string }[] = [
   { id: 'mine', label: 'Mine', title: 'Your kills and deaths', empty: 'No kills or deaths of yours yet.' },
   { id: 'legion', label: 'My Guild', title: "Kills and deaths of your legion's members, yours included", empty: 'No kills or deaths of your legion yet.' },
+  { id: 'server', label: 'Server vs Server', title: 'Kills between your server and other servers', empty: 'No kills between your server and another yet.' },
 ]
 const filter = ref<Filter | null>(null)
+/** Server vs Server narrowed to one enemy server (a click on its tally). */
+const enemy = ref<number | null>(null)
 function pick(id: Filter): void {
   filter.value = filter.value === id ? null : id
+  enemy.value = null
   limit.value = PAGE
 }
-const filtered = computed(() =>
-  filter.value === 'mine' ? kills.value.filter((k) => k.mine || k.died) : filter.value === 'legion' ? kills.value.filter((k) => k.legion) : kills.value,
-)
+function pickEnemy(server: number): void {
+  enemy.value = enemy.value === server ? null : server
+  limit.value = PAGE
+}
+/** The other server of a kill between ours and another, and whether we got the kill; null for any other kill. */
+function versus(k: PvpKill): { server: number; ours: boolean } | null {
+  const me = myServer.value
+  const victim = k.victim?.server ?? null
+  if (me === null || victim === null) return null
+  if (k.killer.server === me && victim !== me) return { server: victim, ours: true }
+  if (victim === me && k.killer.server !== me) return { server: k.killer.server, ours: false }
+  return null
+}
+const filtered = computed(() => {
+  if (filter.value === 'mine') return kills.value.filter((k) => k.mine || k.died)
+  if (filter.value === 'legion') return kills.value.filter((k) => k.legion)
+  if (filter.value === 'server')
+    return kills.value.filter((k) => {
+      const v = versus(k)
+      return v !== null && (enemy.value === null || v.server === enemy.value)
+    })
+  return kills.value
+})
+/** Per enemy server: our kills on them and theirs on us, the most fought first. */
+const tallies = computed(() => {
+  const by = new Map<number, { server: number; us: number; them: number }>()
+  for (const k of store.pvp) {
+    const v = versus(k)
+    if (!v) continue
+    const t = by.get(v.server) ?? { server: v.server, us: 0, them: 0 }
+    if (v.ours) t.us++
+    else t.them++
+    by.set(v.server, t)
+  }
+  return [...by.values()].sort((a, b) => b.us + b.them - (a.us + a.them))
+})
 // The newest rows only (a siege lists thousands); more on request.
 const PAGE = 200
 const limit = ref(PAGE)
@@ -79,6 +116,24 @@ const toggleHud = (): void => void bridge().invoke(hudOpen.value ? 'killfeed:clo
       </button>
       <!-- How many kills the list below holds (with the filter). -->
       <span class="ml-auto rounded-full bg-card px-2 py-0.5 tabular-nums text-dark" :title="`${filtered.length} kill${filtered.length === 1 ? '' : 's'} in the list`">{{ filtered.length }}</span>
+    </div>
+
+    <!-- Server vs Server: each enemy server's score against ours; a click shows that server only. -->
+    <div v-if="filter === 'server' && tallies.length" class="flex flex-wrap gap-1.5 text-xs">
+      <button
+        v-for="t in tallies"
+        :key="t.server"
+        type="button"
+        :title="`Us ${t.us} kills on [${serverTag(t.server)}], [${serverTag(t.server)}] ${t.them} kills on us`"
+        :class="['flex items-center gap-1.5 rounded-md border px-2 py-1', enemy === t.server ? 'border-accent bg-accent/15' : 'border-card bg-card hover:border-light']"
+        @click="pickEnemy(t.server)"
+      >
+        <span class="font-semibold text-yellow">[{{ serverTag(t.server) }}]</span>
+        <span class="font-semibold tabular-nums text-danger">{{ t.them }}</span>
+        <span class="text-darker">vs</span>
+        <span class="font-semibold tabular-nums text-green">{{ t.us }}</span>
+        <span class="text-dark">us</span>
+      </button>
     </div>
 
     <ul v-if="filtered.length" class="divide-y divide-[color:var(--gray-4)] overflow-hidden rounded-lg border border-card bg-card">

@@ -7,7 +7,7 @@ import LevelBadge from '@/components/LevelBadge.vue'
 import PetIcon from '@/components/PetIcon.vue'
 import WorldMap, { type MapLayer } from '@/components/WorldMap.vue'
 import { displayName, monsterName } from '@/lib/petDb.ts'
-import { currentWorld, levelFit, LEVEL_GAP, loadSpawns, npcUrl, sortDroppers, type Dropper } from '@/lib/spawns.ts'
+import { levelFit, LEVEL_GAP, loadSpawns, npcUrl, sortDroppers, type Dropper } from '@/lib/spawns.ts'
 import { useApp } from '@/stores/app.ts'
 import { blankPet } from '@shared/tracker.ts'
 
@@ -49,7 +49,17 @@ watch(
 const current = computed(() => droppers.value.find((d) => d.npc === selected.value) ?? null)
 
 const worldId = ref<number | null>(null)
-watch(current, (d) => (worldId.value = d?.worlds[0]?.world ?? null), { immediate: true })
+/** Your zone when this monster spawns there, else its first. */
+const startWorld = (d: (typeof droppers.value)[number] | null): number | null =>
+  d?.worlds.find((w) => w.world === store.nearby.world)?.world ?? d?.worlds[0]?.world ?? null
+watch(current, (d) => (worldId.value = startWorld(d)), { immediate: true })
+// Moving to another zone it spawns in (a Spacetime rift to the other continent, and back) shows that one.
+watch(
+  () => store.nearby.world,
+  (now) => {
+    if (now !== null && current.value?.worlds.some((w) => w.world === now)) worldId.value = now
+  },
+)
 const worldName = (id: number): string => data.value?.worlds[id]?.name ?? `#${id}`
 const world = computed(() => (data.value && worldId.value !== null ? data.value.worlds[worldId.value] ?? null : null))
 /** The zones the selected monster spawns in, for the tabs above the map. */
@@ -63,8 +73,7 @@ const layers = computed<MapLayer[]>(() =>
 )
 /** You, on this map, when you are in this zone and the tracker knows where. */
 const you = computed<[number, number] | null>(() => {
-  if (!data.value || !store.nearby.position) return null
-  return currentWorld(store.nearby, data.value) === worldId.value ? store.nearby.position : null
+  return store.nearby.world === worldId.value ? store.nearby.position : null
 })
 /** How many of each monster are loaded around you right now. */
 const nearCount = computed(() => new Map(store.nearby.monsters.map((m) => [m.npc, m.count])))
@@ -83,10 +92,12 @@ function saveLevel(): void {
 <template>
   <div class="flex h-full flex-col gap-3 p-3">
     <div class="flex items-center gap-3">
+      <!-- Opened from the collection's map: back to it. -->
       <button
+        v-if="store.collectionMapOpen"
         type="button"
         class="flex size-7 shrink-0 items-center justify-center rounded-md text-darker transition hover:bg-light hover:text-default"
-        title="Back to the collection"
+        title="Back to the collection map (Esc)"
         @click="store.openPet(null)"
       >
         <svg viewBox="0 0 16 16" class="size-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

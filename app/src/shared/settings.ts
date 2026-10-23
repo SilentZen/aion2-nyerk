@@ -24,7 +24,7 @@ export interface Point {
 export interface Settings {
   /** Where the floating icon sits, in screen DIPs; null = bottom right of the primary display. */
   bubble: Point | null
-  /** Panel size; its position follows the bubble. */
+  /** Panel size (its outer edges drag it bigger); its position follows the bubble. */
   panel: { width: number; height: number }
   /** Keep the panel above the game while it is open. */
   panelOnTop: boolean
@@ -60,6 +60,12 @@ export interface Settings {
 
   /** Where the Black Cloud Merchant window sits (top-left, screen DIPs); null = top centre. */
   merchantWindow: Point | null
+
+  /**
+   * The map window (a pet's drop locations, the collection's map): its size, and where (null =
+   * centred); and the size of the collection's map as a minimap.
+   */
+  mapWindow: { position: Point | null; width: number; height: number; minimap: { width: number; height: number } }
 
   /** The kill feed window (PvP Log → Open HUD): open, and where (null = top right). */
   killFeed: { open: boolean; position: Point | null }
@@ -127,6 +133,14 @@ export interface AddonHudPlace {
 
 export type SettingKey = keyof Settings
 
+/** How small and large the panel can be dragged. */
+export const PANEL_MIN = { width: 340, height: 360 }
+export const PANEL_MAX = { width: 1200, height: 1400 }
+/** How small the map window can be dragged: room for the monster list beside a map. */
+export const MAP_MIN = { width: 640, height: 420 }
+/** How small the collection's map can be dragged as a minimap: only the map. */
+export const MINIMAP_MIN = { width: 160, height: 160 }
+
 export const SETTINGS_DEFAULTS: Settings = {
   bubble: null,
   panel: { width: 420, height: 560 },
@@ -148,6 +162,7 @@ export const SETTINGS_DEFAULTS: Settings = {
     kina: true,
   },
   merchantWindow: null,
+  mapWindow: { position: null, width: 900, height: 640, minimap: { width: 320, height: 320 } },
   killFeed: { open: false, position: null },
   hideFromCapture: false,
   faction: 'elyos',
@@ -193,9 +208,24 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
       const v = (value ?? {}) as Partial<Settings['killFeed']>
       return { open: bool(v.open, d.killFeed.open), position: point(v.position) } as Settings[K]
     }
+    case 'mapWindow': {
+      const v = (value ?? {}) as Partial<Settings['mapWindow']>
+      return {
+        position: point(v.position),
+        width: Math.round(num(v.width, MAP_MIN.width, 2400, d.mapWindow.width)),
+        height: Math.round(num(v.height, MAP_MIN.height, 1600, d.mapWindow.height)),
+        minimap: {
+          width: Math.round(num(v.minimap?.width, MINIMAP_MIN.width, 1200, d.mapWindow.minimap.width)),
+          height: Math.round(num(v.minimap?.height, MINIMAP_MIN.height, 1200, d.mapWindow.minimap.height)),
+        },
+      } as Settings[K]
+    }
     case 'panel': {
       const v = (value ?? {}) as Partial<Settings['panel']>
-      return { width: num(v.width, 340, 1200, d.panel.width), height: num(v.height, 360, 1400, d.panel.height) } as Settings[K]
+      return {
+        width: Math.round(num(v.width, PANEL_MIN.width, PANEL_MAX.width, d.panel.width)),
+        height: Math.round(num(v.height, PANEL_MIN.height, PANEL_MAX.height, d.panel.height)),
+      } as Settings[K]
     }
     case 'panelOnTop':
     case 'hideFromCapture':

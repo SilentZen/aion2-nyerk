@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The collection's map: the pets the Collection tab's filters show, on one zone's map, the ones
 // in that zone nearest you first. Click a pet to pick its spawns out; the arrow opens its drop
-// locations (and back comes here).
+// locations (and back comes here). The icon at the map's top right makes it a minimap: only the
+// map, in a small window, moved by the arrows at its bottom right and back to the full window by
+// clicking the icon again.
 import { computed, ref, watch } from 'vue'
 import GenusPill from '@/components/GenusPill.vue'
 import LevelBadge from '@/components/LevelBadge.vue'
@@ -9,6 +11,7 @@ import PetIcon from '@/components/PetIcon.vue'
 import Select from '@/components/Select.vue'
 import WorldMap, { type MapLayer } from '@/components/WorldMap.vue'
 import { useCollectionList } from '@/lib/collectionList.ts'
+import { windowDrag } from '@/lib/windowDrag.ts'
 import { displayName } from '@/lib/petDb.ts'
 import { formatDistance } from '@/lib/spawns.ts'
 import { useApp } from '@/stores/app.ts'
@@ -16,6 +19,7 @@ import { nextLevelSouls, type Pet } from '@shared/tracker.ts'
 
 const store = useApp()
 const { spawns, list, here, near } = useCollectionList()
+const drag = windowDrag({ move: 'map:moveTo', end: 'map:dragEnd' })
 
 /** One colour per pet, as on a pet's own map: the selected one in the accent. */
 const PALETTE = ['#f76b15', '#30a46c', '#0090ff', '#ffc53d', '#e54666', '#12a594', '#ab4aba', '#8e8c99']
@@ -58,6 +62,14 @@ watch(
     if (!list.some((z) => z.id === worldId.value)) worldId.value = list[0]?.id ?? null
   },
   { immediate: true },
+)
+// Moving to another zone (a Spacetime rift to the other continent, and back) shows its map, when
+// the listed pets spawn there; a zone picked by hand stays until you move again.
+watch(
+  () => store.nearby.world,
+  (now) => {
+    if (now !== null && zones.value.some((z) => z.id === now)) worldId.value = now
+  },
 )
 const world = computed(() => (spawns.value && worldId.value !== null ? spawns.value.worlds[worldId.value] ?? null : null))
 const worldName = (id: number): string => spawns.value?.worlds[id]?.name ?? `#${id}`
@@ -137,18 +149,35 @@ const progress = (pet: Pet): string => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col gap-3 p-3">
+  <div v-if="store.mapMinimap" class="relative h-full">
+    <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" bare />
+    <div v-else class="flex h-full items-center justify-center p-2 text-center text-xs text-darker">No pets on this map.</div>
+    <button
+      type="button"
+      title="Back to the full map"
+      class="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded bg-black/55 text-white/85 transition hover:bg-black/75 hover:text-white"
+      @pointerdown.stop
+      @dblclick.stop
+      @click="store.setMapMinimap(false)"
+    >
+      <svg viewBox="0 0 16 16" class="size-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9" />
+      </svg>
+    </button>
+    <div
+      title="Drag to move"
+      class="absolute bottom-1.5 right-1.5 flex size-5 cursor-move items-center justify-center rounded bg-black/55 text-white/85 transition hover:bg-black/75 hover:text-white"
+      @pointerdown.stop="drag.onPointerDown"
+      @dblclick.stop
+    >
+      <svg viewBox="0 0 16 16" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2" />
+      </svg>
+    </div>
+  </div>
+
+  <div v-else class="flex h-full flex-col gap-3 p-3">
     <div class="flex items-center gap-3">
-      <button
-        type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-darker transition hover:bg-light hover:text-default"
-        title="Back to the collection"
-        @click="store.openCollectionMap(false)"
-      >
-        <svg viewBox="0 0 16 16" class="size-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10 3L5 8l5 5" />
-        </svg>
-      </button>
       <div class="min-w-0 flex-1">
         <div class="text-base font-semibold">Collection map</div>
         <div class="truncate text-xs text-darker">
@@ -246,8 +275,21 @@ const progress = (pet: Pet): string => {
       </ul>
 
       <div class="flex min-w-0 flex-1 flex-col gap-2">
-        <div class="min-h-0 flex-1">
+        <div class="relative min-h-0 flex-1">
           <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" />
+          <button
+            v-if="world"
+            type="button"
+            title="Minimap: only the map, in a small window"
+            class="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-black/55 text-white/85 transition hover:bg-black/75 hover:text-white"
+            @pointerdown.stop
+            @dblclick.stop
+            @click="store.setMapMinimap(true)"
+          >
+            <svg viewBox="0 0 16 16" class="size-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13.5 2.5L9 7M9 3.5V7h3.5M2.5 13.5L7 9M7 12.5V9H3.5" />
+            </svg>
+          </button>
           <div v-else class="flex h-full items-center justify-center rounded-lg border border-card text-sm text-darker">
             None of these pets' soul monsters are on the map.
           </div>

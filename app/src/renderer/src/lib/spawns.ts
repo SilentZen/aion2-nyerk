@@ -142,23 +142,6 @@ export function nearbyPets(near: Nearby, data: SpawnData): NearbyPet[] {
   return [...byPet.values()].sort((a, b) => b.count - a.count || a.pet - b.pet)
 }
 
-/**
- * The zone you are in: the last zone load's, else the one the soul monsters around you spawn in
- * (a tracker started mid-session has not seen a zone load).
- */
-export function currentWorld(near: Nearby, data: SpawnData): number | null {
-  if (near.world !== null) return near.world
-  const votes = new Map<number, number>()
-  for (const p of nearbyPets(near, data)) {
-    for (const m of p.monsters) {
-      for (const w of data.pets[p.pet]?.find((d) => d.npc === m.npc)?.worlds ?? []) {
-        votes.set(w.world, (votes.get(w.world) ?? 0) + m.count)
-      }
-    }
-  }
-  return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-}
-
 /** questlog.gg's zone groups: the continents a pet's soul monsters can spawn on. */
 export type Continent = 'elyos' | 'asmodians' | 'abyss'
 export const CONTINENTS: { id: Continent; label: string }[] = [

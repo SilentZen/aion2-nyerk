@@ -92,7 +92,8 @@ class AddonApi:
     # The tracker's view, read only.
     @property
     def world(self) -> int | None:
-        return self._tracker.world
+        """Your zone, as the app has it (the last zone load's, else where the monsters around you spawn)."""
+        return self._tracker.current_world()
 
     @property
     def position(self) -> tuple[float, float] | None:

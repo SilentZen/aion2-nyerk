@@ -3,13 +3,16 @@
  * alert window (from a few minutes before a start until 2 minutes after; shared/timers.ts). A new
  * one is announced once (the bubble chimes), and the bubble shakes while any are up. A click on the
  * bubble dismisses them until their next start.
+ *
+ * Also, for addons: the next resets and every timer's next start (`timers:state`, the `timers`
+ * event), sent when any of them moves on, whether or not the game runs.
  */
 import { broadcast } from './broadcast.ts'
 import { featureOn } from './builtins.ts'
 import { game } from './game.ts'
 import { settings } from './settings.ts'
 import { log, tracker } from './tracker.ts'
-import { alertingStart, TIMERS, type TimerAlert } from '../shared/timers.ts'
+import { alertingStart, TIMERS, timersState, type TimerAlert, type TimersState } from '../shared/timers.ts'
 
 const CHECK_MS = 15_000
 
@@ -19,10 +22,18 @@ const done = new Set<string>()
 const key = (a: TimerAlert): string => `${a.id}@${a.at}`
 /** Alerts the app announced before an update restart: they show again without a second chime. */
 let announced = new Set<string>()
+let state: TimersState | null = null
+const currentState = (now: number): TimersState =>
+  timersState(now, settings.get('timers').region, featureOn('timers'), tracker.fieldBosses())
 
 function check(): void {
   const now = Date.now()
   const cfg = settings.get('timers')
+  const nextState = currentState(now)
+  if (JSON.stringify(nextState) !== JSON.stringify(state)) {
+    state = nextState
+    broadcast('timers:state', state)
+  }
   // Only while the game runs (or a replay stands in for it): alerts are for playing. None while the
   // Timers addon is switched off (a settings change: the alerts up go at once).
   const live = featureOn('timers') && (game.running() || Boolean(process.env['A2T_REPLAY']))
@@ -51,6 +62,8 @@ function check(): void {
 
 export const timers = {
   alerting: (): TimerAlert[] => alerting,
+  /** The resets and next starts, as addons get them. */
+  state: (): TimersState => (state ??= currentState(Date.now())),
   /** For an update restart: the alerts seen, so the new start does not chime them again. */
   snapshot: (): { done: string[]; alerting: string[] } => ({ done: [...done], alerting: alerting.map(key) }),
   /** After an update restart: alerts already announced stay quiet; dismissed ones stay dismissed. */

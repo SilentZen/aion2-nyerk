@@ -1,14 +1,14 @@
 <script setup lang="ts">
 // The panel the bubble opens: the collection, this session, the timers, addons' tabs, and settings.
-// Escape or × hides it.
+// Escape or × hides it; its outer edges resize it. Maps open in a window of their own (MapPage).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AddonFrame from '@/components/AddonFrame.vue'
+import ResizeGrips from '@/components/ResizeGrips.vue'
 import CollectionTab from '@/components/panel/CollectionTab.vue'
-import PetDetail from '@/components/panel/PetDetail.vue'
-import CollectionMap from '@/components/panel/CollectionMap.vue'
 import SessionTab from '@/components/panel/SessionTab.vue'
 import PvpLogTab from '@/components/panel/PvpLogTab.vue'
 import SettingsTab from '@/components/panel/SettingsTab.vue'
+import TabIcon from '@/components/panel/TabIcon.vue'
 import TimersTab from '@/components/panel/TimersTab.vue'
 import StatusDot, { statusText } from '@/components/StatusDot.vue'
 import { bridge } from '@/lib/bridge.ts'
@@ -25,14 +25,23 @@ const APP_TABS: { id: string; label: string; addon?: BuiltinAddon }[] = [
   { id: 'pvp', label: 'PvP Log', addon: 'pvp-log' },
 ]
 const appTabs = computed(() => APP_TABS.filter((t) => !t.addon || builtinOn(store.settings.addons.enabled, t.addon)))
-// Addons' tabs (`addon:<id>`) go after the app's own, before Settings.
+// Addons' tabs (`addon:<id>`) go after the app's own.
 const addonTabs = computed(() =>
   (store.addons?.addons ?? [])
     .filter((a) => a.state === 'on' && a.tab && a.id)
-    .map((a) => ({ id: `addon:${a.id}`, label: a.tab!.label, addon: a.id!, page: a.tab!.page })),
+    .map((a) => ({ id: `addon:${a.id}`, label: a.tab!.label, addon: a.id!, page: a.tab!.page, icon: a.tab!.icon })),
 )
-const TABS = computed(() => [...appTabs.value, ...addonTabs.value, { id: 'settings', label: 'Settings' }])
+const TABS = computed(() => [...appTabs.value, ...addonTabs.value])
 const tab = ref<string>('collection')
+// Settings is the cog by the ×, not a tab: clicked again, it goes back to the tab it came from.
+let beforeSettings = 'collection'
+const toggleSettings = (): void => {
+  if (tab.value === 'settings') tab.value = TABS.value.some((t) => t.id === beforeSettings) ? beforeSettings : 'collection'
+  else {
+    beforeSettings = tab.value
+    tab.value = 'settings'
+  }
+}
 const addonTab = computed(() => addonTabs.value.find((t) => t.id === tab.value) ?? null)
 // An addon tab asked for (after an update restart) before the addons are known: shown once they are.
 let wanted: string | null = null
@@ -48,6 +57,12 @@ watch(appTabs, () => {
 })
 // Main keeps the tab, so an update restart reopens the panel where it was.
 watch(tab, (t) => void bridge().invoke('panel:tab', t), { immediate: true })
+// And the Collection's filters, for the map window's collection map to show the same pets.
+watch(
+  () => store.collectionView,
+  (v) => void bridge().invoke('collection:view', JSON.parse(JSON.stringify(v))),
+  { deep: true, immediate: true },
+)
 
 // The update banner's countdown to the restart.
 const clock = ref(Date.now())
@@ -61,43 +76,35 @@ const restartIn = computed(() => {
 const hide = (): void => void bridge().invoke('panel:hide')
 const onKey = (e: KeyboardEvent): void => {
   if (e.key !== 'Escape' || e.target instanceof HTMLInputElement) return
-  // Escape backs out of a pet's map first, then the collection's map, then hides the panel.
-  if (store.openPetId !== null) store.openPet(null)
-  else if (store.collectionMapOpen) store.openCollectionMap(false)
-  else hide()
+  hide()
 }
-// A pet clicked in the merchant window: its drop locations, as a click in the collection opens.
-let offShowPet: (() => void) | null = null
 // The bubble clicked during an alert: the Timers tab, on the timers that alerted.
 let offShowTimers: (() => void) | null = null
 // Back from an update restart: the tab it was on.
 let offShowTab: (() => void) | null = null
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  offShowPet = bridge().on('panel:showPet', (pet) => store.openPet(pet))
   offShowTimers = bridge().on('panel:showTimers', (ids) => {
     if (!builtinOn(store.settings.addons.enabled, 'timers')) return
-    store.openPet(null)
-    store.openCollectionMap(false)
     tab.value = 'timers'
     store.timerFocus = { ids, at: Date.now() }
   })
   offShowTab = bridge().on('panel:showTab', (id) => {
-    const found = TABS.value.find((t) => t.id === id)
-    if (found) tab.value = found.id
+    const found = id === 'settings' || TABS.value.some((t) => t.id === id)
+    if (found) tab.value = id
     else if (id.startsWith('addon:')) wanted = id
   })
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
-  offShowPet?.()
   offShowTimers?.()
   offShowTab?.()
 })
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden rounded-xl border border-card bg-app shadow-card">
+  <div class="relative flex h-full flex-col overflow-hidden rounded-xl border border-card bg-app shadow-card">
+    <ResizeGrips />
     <header class="flex items-center gap-2.5 border-b border-card px-3 py-2.5">
       <img src="/icon.png" alt="" class="size-7" draggable="false" />
       <div class="min-w-0 flex-1">
@@ -109,6 +116,22 @@ onBeforeUnmount(() => {
           <span v-if="store.sessionSouls" class="text-green">· +{{ store.sessionSouls }} souls</span>
         </div>
       </div>
+      <button
+        type="button"
+        title="Settings"
+        :class="[
+          'flex size-7 items-center justify-center rounded-md transition hover:bg-light',
+          tab === 'settings' ? 'bg-light text-accent' : 'text-darker hover:text-default',
+        ]"
+        @click="toggleSettings"
+      >
+        <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path
+            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+          />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
       <button
         type="button"
         title="Hide (Esc)"
@@ -151,30 +174,27 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <nav v-if="store.openPetId === null && !store.collectionMapOpen" :class="['flex border-b border-card pt-1.5', TABS.length > 5 ? 'gap-0.5 px-1.5' : 'gap-1 px-2']">
+    <!-- Each tab is its icon; the open one has its name beside it, the others on hover. -->
+    <nav class="flex gap-1 border-b border-card px-2 pt-1.5">
       <button
         v-for="t in TABS"
         :key="t.id"
         type="button"
+        :title="tab !== t.id ? t.label : undefined"
         :class="[
-          '-mb-px whitespace-nowrap border-b-2 pb-2 pt-1 font-medium transition',
-          // Room for addons' tabs: a little tighter once there are more than the app's five.
-          TABS.length > 5 ? 'px-2 text-[13px]' : 'px-2.5 text-sm',
+          '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 pb-2 pt-1 text-sm font-medium transition',
           tab === t.id ? 'border-accent text-default' : 'border-transparent text-darker hover:text-default',
-          // Settings sits apart, at the right end.
-          t.id === 'settings' && 'ml-auto',
         ]"
         @click="tab = t.id"
       >
-        {{ t.label }}
+        <TabIcon :id="t.id" :label="t.label" :addon="'addon' in t ? t.addon : undefined" :icon="'icon' in t ? t.icon : undefined" />
+        <span v-if="tab === t.id">{{ t.label }}</span>
       </button>
     </nav>
 
     <!-- An addon's page scrolls itself, inside its frame. -->
-    <main :class="['min-h-0 flex-1', addonTab && store.openPetId === null && !store.collectionMapOpen ? 'overflow-hidden' : 'overflow-y-auto']">
+    <main :class="['min-h-0 flex-1', addonTab ? 'overflow-hidden' : 'overflow-y-auto']">
       <div v-if="!store.ready" class="p-6 text-center text-sm text-darker">Loading…</div>
-      <PetDetail v-else-if="store.openPetId !== null" :id="store.openPetId" />
-      <CollectionMap v-else-if="store.collectionMapOpen" />
       <CollectionTab v-else-if="tab === 'collection'" />
       <SessionTab v-else-if="tab === 'session'" />
       <TimersTab v-else-if="tab === 'timers'" />

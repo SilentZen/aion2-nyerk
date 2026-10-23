@@ -6,9 +6,27 @@
 import type { AddonEvent, AddonsStatus } from './addons.ts'
 import type { KinaSession } from './kina.ts'
 import type { Point, SettingKey, Settings } from './settings.ts'
-import type { FieldBosses, TimerAlert, TimerId } from './timers.ts'
+import type { FieldBosses, TimerAlert, TimerId, TimersState } from './timers.ts'
 import type { Nearby, Pet, PvpKill, ShopStock, SoulToast, TrackerStatus } from './tracker.ts'
 import type { UpdateStatus } from './update.ts'
+
+/** What the map window shows: a pet's drop locations, or the collection's map. */
+export type MapView = { kind: 'pet'; pet: number } | { kind: 'collection' }
+
+/** The Collection tab's search, sort and filter pills (stores/app.ts), for the map window's copy. */
+export interface CollectionView {
+  query: string
+  sort: string
+  filter: string[]
+  genus: string[]
+  continent: string[]
+}
+
+/** The panel's edges away from the bubble: the ones it grows from. */
+export interface PanelEdges {
+  x: 'left' | 'right'
+  y: 'top' | 'bottom'
+}
 
 /** Renderer → main, request/response. */
 export interface InvokeChannels {
@@ -37,7 +55,10 @@ export interface InvokeChannels {
   'bubble:dragEnd': { args: []; result: void }
   'panel:toggle': { args: []; result: void }
   'panel:hide': { args: []; result: void }
-  'panel:setExpanded': { args: [expanded: boolean]; result: void }
+  /** The panel's outer edges (away from the bubble), where its resize grips go. */
+  'panel:edges': { args: []; result: PanelEdges }
+  /** Dragging a grip on the panel's outer edges: its new size, and (`end`) the drag is over (saved). */
+  'panel:resize': { args: [size: { width: number; height: number }, end: boolean]; result: void }
   /** The panel's tab changed: kept in main so an update restart reopens it there. */
   'panel:tab': { args: [tab: string]; result: void }
 
@@ -64,8 +85,18 @@ export interface InvokeChannels {
   'timers:dismiss': { args: []; result: void }
   /** The bubble was clicked during an alert: dismiss it and show its timer in the panel. */
   'timers:open': { args: []; result: void }
-  /** Open the panel on a pet's drop locations (from the merchant window). */
-  'panel:showPet': { args: [pet: number]; result: void }
+  /** Open the map window on a pet's drop locations, or on the collection's map. */
+  'map:showPet': { args: [pet: number]; result: void }
+  'map:showCollection': { args: []; result: void }
+  /** The map window's page, as it loads: what to show, and the Collection tab's filters. */
+  'map:get': { args: []; result: { view: MapView | null; collection: CollectionView | null } }
+  'map:moveTo': { args: [to: Point]; result: void }
+  'map:dragEnd': { args: []; result: void }
+  'map:close': { args: []; result: void }
+  /** The collection's map as a minimap (only the map, in a small window) or back to the full window. */
+  'map:minimap': { args: [on: boolean]; result: void }
+  /** The panel's Collection filters changed: passed on to the map window's collection map. */
+  'collection:view': { args: [view: CollectionView]; result: void }
 
   /** The addons found in the addons folder (shared/addons.ts). */
   'addons:get': { args: []; result: AddonsStatus }
@@ -106,14 +137,20 @@ export interface EventChannels {
   'timers:alert': TimerAlert
   /** Every timer alerting now (the bubble shakes while there are any). */
   'timers:alerting': TimerAlert[]
-  /** To the panel: show this pet's drop locations. */
-  'panel:showPet': number
+  /** The next resets and timer starts, whenever one moves on (for addons: the `timers` event). */
+  'timers:state': TimersState
+  /** To the map window: show this. */
+  'map:show': MapView
+  /** To the map window: the Collection tab's filters, as they change. */
+  'map:collectionView': CollectionView
   /** To the panel: show this tab (it was open on it before an update restart). */
   'panel:showTab': string
   /** To the panel: show the Timers tab and highlight these timers (the ones that alerted). */
   'panel:showTimers': TimerId[]
   'hud:editing': boolean
   'panel:visible': boolean
+  /** The panel moved to the bubble's other side: its grips go to the new outer edges. */
+  'panel:edges': PanelEdges
   'update:status': UpdateStatus
   /** The addons, after a reload or a switch, or when the folder changed (a reload would find more). */
   'addons:changed': AddonsStatus
@@ -140,13 +177,14 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'settings:all', 'settings:set',
   'tracker:get', 'tracker:setSouls', 'tracker:setName', 'tracker:restart', 'tracker:resetSession', 'tracker:clearPvp',
   'update:get', 'update:check', 'update:download', 'update:install',
-  'bubble:moveTo', 'bubble:dragEnd', 'panel:toggle', 'panel:hide', 'panel:setExpanded', 'panel:tab',
+  'bubble:moveTo', 'bubble:dragEnd', 'panel:toggle', 'panel:hide', 'panel:edges', 'panel:resize', 'panel:tab',
   'hud:setEditing', 'hud:moveTo', 'hud:dragEnd', 'hud:resize', 'addonHud:moveTo', 'addonHud:dragEnd', 'addonHud:resize',
   'merchant:moveTo', 'merchant:dragEnd', 'merchant:resize', 'merchant:close',
-  'killfeed:open', 'killfeed:close', 'killfeed:moveTo', 'killfeed:dragEnd', 'killfeed:resize', 'panel:showPet', 'timers:get', 'timers:dismiss', 'timers:open',
+  'killfeed:open', 'killfeed:close', 'killfeed:moveTo', 'killfeed:dragEnd', 'killfeed:resize', 'timers:get',
+  'map:showPet', 'map:showCollection', 'map:get', 'map:moveTo', 'map:dragEnd', 'map:close', 'map:minimap', 'collection:view', 'timers:dismiss', 'timers:open',
   'addons:get', 'addons:openFolder', 'addons:reload', 'addons:setEnabled', 'addons:setSetting', 'addons:call',
 ]
 
 export const EVENT_CHANNELS: readonly EventChannel[] = [
-  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'panel:showPet', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'hud:editing', 'panel:visible', 'update:status', 'addons:changed', 'addons:event', 'addons:notify',
+  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'map:show', 'map:collectionView', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'timers:state', 'hud:editing', 'panel:visible', 'panel:edges', 'update:status', 'addons:changed', 'addons:event', 'addons:notify',
 ]
