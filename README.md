@@ -5,10 +5,8 @@ and weekly tasks, and times the game's events and field bosses, all without touc
 
 <p align="center">
   <img src="assets/collection.png" width="400" alt="The Collection panel">
-  <img src="assets/hud.png" width="302" alt="The in-game HUD">
-</p>
-<p align="center">
   <img src="assets/minimap.png" width="513" alt="The Collection map as a minimap">
+  <img src="assets/hud.png" width="302" alt="The in-game HUD">
 </p>
 
 - **Live soul counts:** every soul is counted the moment it drops, with level-ups (5 → 25 → 75)
