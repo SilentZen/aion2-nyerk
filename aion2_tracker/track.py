@@ -53,6 +53,10 @@ CAST_RANGE = 2500.0
 # reached 5,400/s, mounted or dashing, in pvp_kills.pcap).
 MAX_SPEED = 10_000.0
 MAX_JUMP_S = 2.0
+# Farther than this from your last position, with nothing between for MAX_JUMP_S or more, is believed
+# only once a second record puts you near it: in arenas and dungeons a lone effect or cast put you
+# 24-250 km off (arena_win, arena_win2, nightmare_run.pcap), the next record back where you were.
+CONFIRM_JUMP = 20_000.0
 # A monster in view is named by some record (its movement, the `1d 37` that comes while it stands,
 # hits) every few seconds: the median monster's longest silence 1-3 s, the 99th percentile 32 s, the
 # longest 57 s, over ~1,800 monsters in seven captures (2026-10-22). Silent this long, it is taken
@@ -173,6 +177,7 @@ class Tracker:
         # you) or a cast target's near you.
         self.position_ts = float("-inf")
         self.position_exact = False
+        self.far_seen: tuple[float, float] | None = None  # a far position waiting for a second record
         self.nearby_dirty = False
         # Collections saved before the level rules can hold a pet past its threshold (97 souls at
         # Lv1): level those up now, as the game already has.
@@ -335,14 +340,20 @@ class Tracker:
         self.position = (x, -y)
         self.height = P.height_after(pkt, x, y)
         self.position_ts, self.position_exact = ts, exact
+        self.far_seen = None
         self.nearby_dirty = True
 
     def _jump(self, ts: float, x: float, y: float) -> bool:
-        """Game (x, y) is too far from your last position for the time since: a misread."""
-        dt = ts - self.position_ts
-        if self.position is None or dt >= MAX_JUMP_S:
+        """Game (x, y) is too far from your last position for the time since, or far off with no
+        second record near it yet: a misread."""
+        if self.position is None:
             return False
-        return math.dist(self.position, (x, -y)) > MAX_SPEED * max(dt, 0.05)
+        dt, d = ts - self.position_ts, math.dist(self.position, (x, -y))
+        if d <= (MAX_SPEED * max(dt, 0.05) if dt < MAX_JUMP_S else CONFIRM_JUMP):
+            return False
+        # Dropped, but remembered: a second record near it, once MAX_JUMP_S has passed, is believed.
+        seen, self.far_seen = self.far_seen, (x, -y)
+        return dt < MAX_JUMP_S or seen is None or math.dist(seen, (x, -y)) > CAST_RANGE
 
     def forget_view(self) -> None:
         """The game closed: nothing is around you any more, and entity ids start over (yours too:

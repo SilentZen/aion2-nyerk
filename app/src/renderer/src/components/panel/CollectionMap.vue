@@ -3,23 +3,30 @@
 // in that zone nearest you first. Click a pet to pick its spawns out; the arrow opens its drop
 // locations (and back comes here). The icon at the map's top right makes it a minimap: only the
 // map, in a small window, moved by the arrows at its bottom right and back to the full window by
-// clicking the icon again.
+// clicking the icon again. The crosshair beside it (shown while your position is known here) keeps
+// you in the map's middle, the map gliding along as you move, until you drag it. Each pet's swatch,
+// and each kind of addon marker in the key under the map, picks its colour and shape (kept in
+// settings.json `mapStyles`). Addons' markers (nyerk.map.markers) in the zone shown draw on top.
 import { computed, ref, watch } from 'vue'
 import GenusPill from '@/components/GenusPill.vue'
 import LevelBadge from '@/components/LevelBadge.vue'
+import MarkStyleButton from '@/components/MarkStyleButton.vue'
 import PetIcon from '@/components/PetIcon.vue'
 import Select from '@/components/Select.vue'
-import WorldMap, { type MapLayer } from '@/components/WorldMap.vue'
+import WorldMap, { type MapLayer, type MapMark } from '@/components/WorldMap.vue'
+import { useAddonMarkers } from '@/lib/addonMarkers.ts'
 import { useCollectionList } from '@/lib/collectionList.ts'
 import { windowDrag } from '@/lib/windowDrag.ts'
 import { displayName } from '@/lib/petDb.ts'
 import { formatDistance } from '@/lib/spawns.ts'
 import { useApp } from '@/stores/app.ts'
+import type { MarkShape, MarkStyle } from '@shared/settings.ts'
 import { nextLevelSouls, type Pet } from '@shared/tracker.ts'
 
 const store = useApp()
 const { spawns, list, here, near } = useCollectionList()
 const drag = windowDrag({ move: 'map:moveTo', end: 'map:dragEnd' })
+const addonMarkers = useAddonMarkers()
 
 /** One colour per pet, as on a pet's own map: the selected one in the accent. */
 const PALETTE = ['#f76b15', '#30a46c', '#0090ff', '#ffc53d', '#e54666', '#12a594', '#ab4aba', '#8e8c99']
@@ -76,6 +83,8 @@ const worldName = (id: number): string => spawns.value?.worlds[id]?.name ?? `#${
 
 /** You, on this map, when you are in this zone and the tracker knows where. */
 const you = computed<[number, number] | null>(() => (here.value && here.value.world === worldId.value ? here.value.at : null))
+/** The map follows you (in the full window and the minimap alike), until it is dragged. */
+const follow = ref(false)
 
 interface Row {
   pet: Pet
@@ -110,16 +119,81 @@ watch(
   },
   { immediate: true },
 )
-// By the pet's place in the collection's list, so colours stay put as you move and the rows re-sort.
+/**
+ * Each pet keeps the colour it was first given while the map is open: the list re-sorts as you move
+ * (Range, Nearby first), and colours by place in it changed under you. The next unused colour each
+ * time, so the pets in view differ while there are colours left.
+ */
+const given = new Map<number, string>()
 const colorOf = (id: number): string => {
+  // A colour you picked stays, selected or not (the selected pet's spawns are bigger anyway).
+  const picked = store.settings.mapStyles.pets[String(id)]?.color
+  if (picked) return picked
   if (id === selected.value) return SELECTED
-  const i = list.value.findIndex((p) => p.id === id)
-  return PALETTE[Math.max(0, i) % PALETTE.length]!
+  let color = given.get(id)
+  if (!color) {
+    color = PALETTE[given.size % PALETTE.length]!
+    given.set(id, color)
+  }
+  return color
 }
 
+const petStyle = (id: number): MarkStyle | null => store.settings.mapStyles.pets[String(id)] ?? null
+const shapeOf = (id: number): MarkShape => petStyle(id)?.shape ?? 'circle'
 const layers = computed<MapLayer[]>(() =>
-  inZone.value.map((r) => ({ key: r.pet.id, points: r.points, color: colorOf(r.pet.id), active: r.pet.id === selected.value })),
+  inZone.value.map((r) => ({
+    key: r.pet.id,
+    points: r.points,
+    color: colorOf(r.pet.id),
+    shape: shapeOf(r.pet.id),
+    active: r.pet.id === selected.value,
+  })),
 )
+
+/** A pet's or a kind of marker's picked look saved (null: back to the map's own). */
+function setStyle(group: 'pets' | 'marks', key: string, style: MarkStyle | null): void {
+  const styles = { ...store.settings.mapStyles[group] }
+  if (style) styles[key] = style
+  else delete styles[key]
+  void store.set('mapStyles', { ...store.settings.mapStyles, [group]: styles })
+}
+
+/** A kind of addon marker: one addon's markers with one label (Nearby Nodes' "Odyle"). */
+const kindKey = (addon: string, label: string | null): string => `${addon}/${label ?? ''}`
+/** The addons' markers in the zone shown, in the look picked for their kind. */
+const marks = computed<MapMark[]>(() =>
+  addonMarkers.value.flatMap((a) =>
+    a.markers
+      .filter((m) => m.world === worldId.value)
+      .map((m) => {
+        const picked = store.settings.mapStyles.marks[kindKey(a.addon, m.label)]
+        return { ...m, color: picked?.color ?? m.color, shape: picked?.shape ?? undefined }
+      }),
+  ),
+)
+/** The key under the map: each addon's kinds of marker in this zone, with how many and their look. */
+const markKinds = computed(() =>
+  addonMarkers.value
+    .map((a) => {
+      const kinds = new Map<string, { key: string; label: string | null; color: string; count: number }>()
+      for (const m of a.markers) {
+        if (m.world !== worldId.value) continue
+        const key = kindKey(a.addon, m.label)
+        const kind = kinds.get(key) ?? { key, label: m.label, color: m.color, count: 0 }
+        kind.count++
+        kinds.set(key, kind)
+      }
+      const list = [...kinds.values()]
+        .map((k) => {
+          const picked = store.settings.mapStyles.marks[k.key] ?? null
+          return { ...k, picked, color: picked?.color ?? k.color, shape: picked?.shape ?? ('diamond' as MarkShape) }
+        })
+        .sort((x, y) => (x.label ?? '').localeCompare(y.label ?? ''))
+      return { addon: a.addon, name: a.name, kinds: list }
+    })
+    .filter((a) => a.kinds.length),
+)
+
 /**
  * The selected pet's spawns, and you when you are here, so the view shows the way there. Set only
  * when the pet or zone changes: the map refits on every new focus, and you move all the time.
@@ -150,8 +224,26 @@ const progress = (pet: Pet): string => {
 
 <template>
   <div v-if="store.mapMinimap" class="relative h-full">
-    <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" bare />
+    <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" :marks="marks" :follow="follow" @unfollow="follow = false" bare />
     <div v-else class="flex h-full items-center justify-center p-2 text-center text-xs text-darker">No pets on this map.</div>
+    <button
+      v-if="world && you"
+      type="button"
+      :title="follow ? 'Following you: drag the map or click to stop' : 'Follow you: keep you in the middle'"
+      :class="[
+        'absolute right-7 top-1.5 flex size-5 items-center justify-center rounded transition',
+        follow ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-black/55 text-white/85 hover:bg-black/75 hover:text-white',
+      ]"
+      @pointerdown.stop
+      @dblclick.stop
+      @click="follow = !follow"
+    >
+      <svg viewBox="0 0 16 16" class="size-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <circle cx="8" cy="8" r="4.5" />
+        <path d="M8 1v2.5M8 12.5V15M1 8h2.5M12.5 8H15" />
+        <circle v-if="follow" cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
     <button
       type="button"
       title="Back to the full map"
@@ -212,7 +304,13 @@ const progress = (pet: Pet): string => {
           @click="selected = r.pet.id"
         >
           <div class="flex items-center gap-2">
-            <span class="size-2.5 shrink-0 rounded-full" :style="{ background: colorOf(r.pet.id) }" />
+            <MarkStyleButton
+              :color="colorOf(r.pet.id)"
+              :shape="shapeOf(r.pet.id)"
+              :picked="petStyle(r.pet.id)"
+              title="Colour and shape of its spawns on the map"
+              @change="setStyle('pets', String(r.pet.id), $event)"
+            />
             <PetIcon :id="r.pet.id" :size="26" />
             <span class="min-w-0 truncate text-sm font-medium">{{ displayName(r.pet) }}</span>
             <GenusPill :id="r.pet.id" />
@@ -276,7 +374,25 @@ const progress = (pet: Pet): string => {
 
       <div class="flex min-w-0 flex-1 flex-col gap-2">
         <div class="relative min-h-0 flex-1">
-          <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" />
+          <WorldMap v-if="world" :world="world" :layers="layers" :focus="focus" :you="you" :marks="marks" :follow="follow" @unfollow="follow = false" />
+          <button
+            v-if="world && you"
+            type="button"
+            :title="follow ? 'Following you: drag the map or click to stop' : 'Follow you: keep you in the middle'"
+            :class="[
+              'absolute right-10 top-2 flex size-7 items-center justify-center rounded-md transition',
+              follow ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-black/55 text-white/85 hover:bg-black/75 hover:text-white',
+            ]"
+            @pointerdown.stop
+            @dblclick.stop
+            @click="follow = !follow"
+          >
+            <svg viewBox="0 0 16 16" class="size-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <circle cx="8" cy="8" r="4.5" />
+              <path d="M8 1v2.5M8 12.5V15M1 8h2.5M12.5 8H15" />
+              <circle v-if="follow" cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
           <button
             v-if="world"
             type="button"
@@ -294,11 +410,22 @@ const progress = (pet: Pet): string => {
             None of these pets' soul monsters are on the map.
           </div>
         </div>
-        <p class="text-[11px] text-darkest">
-          <template v-if="world && !you">Your position shows here once the tracker knows it in {{ world.name }}. </template>
-          Drop sources, spawns and maps:
-          <a :href="spawns?.source" target="_blank" class="hover:text-default hover:underline">questlog.gg</a> ({{ spawns?.fetched }})
-        </p>
+        <div v-for="a in markKinds" :key="a.addon" class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-darker">
+          <span class="font-semibold text-darkest">{{ a.name }}</span>
+          <span v-for="k in a.kinds" :key="k.key" class="flex items-center gap-1">
+            <MarkStyleButton
+              :color="k.color"
+              :shape="k.shape"
+              :picked="k.picked"
+              :title="`Colour and shape of ${k.label ?? 'these markers'} on the map`"
+              @change="setStyle('marks', k.key, $event)"
+            />
+            {{ k.label ?? 'Marker' }}
+            <span class="tabular-nums text-darkest">{{ k.count }}</span>
+          </span>
+        </div>
+        <!-- Only while it says something, so the map has the room otherwise (questlog.gg is credited on the Collection tab and each pet's drop locations). -->
+        <p v-if="world && !you" class="text-[11px] text-darkest">Your position shows here once the tracker knows it in {{ world.name }}.</p>
       </div>
     </div>
   </div>

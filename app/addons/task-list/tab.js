@@ -60,7 +60,22 @@ const charKey = (c) => `${c.server}:${c.name}`
 const serverName = (server) => SERVER_TAGS[server] ?? String(server)
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const picked = () => chars[view.char] ?? null
-const isMember = (c) => Boolean(c && members[c.server])
+
+/**
+ * When the membership on a character's server ends, as the game last listed it (the server's latest
+ * read, any of its characters): 0 for none, null when not read yet.
+ */
+function memberEnd(c) {
+  let best = null
+  for (const g of Object.values(game)) {
+    if (c && g.server === c.server && g.benefits && (!best || g.benefitsAt > best.benefitsAt)) best = g
+  }
+  return best ? L.membershipEnd(best.benefits) : null
+}
+
+/** Membership on the character's server (logic.js memberOf): as the game says, unless set by hand. */
+const memberNow = (c) => L.memberOf(members[c.server], memberEnd(c), Date.now())
+const isMember = (c) => Boolean(c && memberNow(c).member)
 
 function save(key, value) {
   nyerk.storage.set(key, value).catch(() => undefined)
@@ -227,8 +242,13 @@ function render() {
   memberButton.setAttribute('aria-pressed', String(member))
   memberButton.textContent = member ? 'Sub' : 'Sub?'
   if (c) {
+    const { auto, overridden } = memberNow(c)
+    const end = memberEnd(c)
+    const until = end ? ` until ${new Date(end).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''
+    const source =
+      auto === null ? '' : overridden ? ` (set by hand; the game says ${auto ? 'on' : 'off'})` : ` (from the game${auto ? until : ''})`
     memberButton.title =
-      `The monthly membership (Special Quai) on ${serverName(c.server)}: ${member ? 'on' : 'off'}. ` +
+      `The monthly membership (Special Quai) on ${serverName(c.server)}: ${member ? 'on' : 'off'}${source}. ` +
       'It covers every character on that server: higher caps, and the member-only rows.'
   }
 
@@ -564,8 +584,10 @@ function pick(change, redraw = true) {
 $('member').addEventListener('click', () => {
   const c = picked()
   if (!c) return
-  members = { ...members, [c.server]: !members[c.server] }
-  if (!members[c.server]) delete members[c.server]
+  // Set by hand against what the game says now; back to what it says, the game decides again.
+  const { member, auto } = memberNow(c)
+  members = { ...members, [c.server]: { on: !member, game: auto } }
+  if (!member === (auto === true)) delete members[c.server]
   save('members', members)
   render()
 })
@@ -594,7 +616,7 @@ function seeGame(state) {
   for (const [key, g] of Object.entries(state?.chars ?? {})) {
     const kept = game[key] ?? {}
     const next = { ...kept, name: g.name ?? kept.name, server: g.server ?? kept.server }
-    for (const part of ['tickets', 'missions', 'pvp', 'duties']) {
+    for (const part of ['tickets', 'missions', 'pvp', 'duties', 'benefits']) {
       const at = g[`${part}At`]
       if (g[part] && typeof at === 'number' && at >= (kept[`${part}At`] ?? 0)) {
         next[part] = g[part]

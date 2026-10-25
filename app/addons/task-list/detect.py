@@ -14,6 +14,8 @@ itself (docs/FINDINGS.md "Content tickets", "Completions", "Arena results").
 - **The duty board** (`1c 8d` at zone entry and on each change): refreshes used today, duties
   turned in today, and the day's duties with their state (2 taken, 4 turned in; one given up
   leaves it). The game's "Daily Completions n/5" is the duties on it in state 2 to 4.
+- **Paid benefits** (`3b e3` at zone entry): each with its start and end; the membership (per
+  server) is ids 1058–1066, so the Tasks tab knows it without the toggle.
 - **Shop purchase counts** (`01 8c` when a shop opens, `03 8c` on a purchase): what was bought of
   each item this period, for the Command shops' weekly limits. Only seen when a shop is used.
 
@@ -39,6 +41,7 @@ OP_COMPLETED = (0x01, 0x61)
 OP_DUTY_BOARD = (0x1C, 0x8D)
 OP_SHOP_BOUGHT = (0x01, 0x8C)  # a shop opened: each item's bought count
 OP_SHOP_BUY = (0x03, 0x8C)  # a purchase: the items' new bought counts
+OP_BENEFITS = (0x3B, 0xE3)  # the server's paid benefits (membership), at zone entry
 EMIT_EVERY_S = 0.5
 # A zone entry's lists wait this long for the character record before going to whoever is logged in.
 PENDING_S = 20.0
@@ -53,7 +56,9 @@ def weekly(key: int) -> bool:
 
 def ticket(b: bytes, pos: int) -> tuple[int, dict, int] | None:
     """`<kind u8> <id u32> <values>`: the kind's bits say what follows, in order: 0x01 a u64,
-    0x02 a u64 (times, ms), 0x04 a varint, 0x08 a varint (counts). Returns (id, values, next)."""
+    0x02 a u64 (times, ms), 0x04 a varint, 0x08 a varint (counts). Returns (id, values, next).
+    A value left out is 0, and keeps its place: Odyle Energy at 0 basic and 1,395 charged comes as
+    0x08 alone, which is [0, 1395], not [1395]."""
     if pos + 5 > len(b) or b[pos] & 0xF0:
         return None
     kind = b[pos]
@@ -61,18 +66,18 @@ def ticket(b: bytes, pos: int) -> tuple[int, dict, int] | None:
     pos += 5
     ms: list[int] = []
     n: list[int] = []
-    for bit in (0x01, 0x02):
+    for i, bit in enumerate((0x01, 0x02)):
         if kind & bit:
             if pos + 8 > len(b):
                 return None
-            ms.append(struct.unpack_from("<Q", b, pos)[0])
+            ms += [0] * (i - len(ms)) + [struct.unpack_from("<Q", b, pos)[0]]
             pos += 8
-    for bit in (0x04, 0x08):
+    for i, bit in enumerate((0x04, 0x08)):
         if kind & bit:
             v, ln = P.read_varint(b, pos)
             if not ln:
                 return None
-            n.append(v)
+            n += [0] * (i - len(n)) + [v]
             pos += ln
     values: dict = {}
     if ms:
@@ -123,6 +128,18 @@ def parse_pvp(b: bytes) -> dict[int, dict] | None:
     for i in range(count):
         r = b[1 + 14 * i : 15 + 14 * i]
         out[r[0]] = {"rating": struct.unpack_from("<I", r, 1)[0], "wins": r[9], "losses": r[10], "streak": r[13]}
+    return out
+
+
+def parse_benefits(b: bytes) -> dict[int, list[int]] | None:
+    """`<count u8>` then 21-byte records `<id u32> <u8> <start u64 ms> <end u64 ms>`: each paid
+    benefit running on the server (the membership is 1058–1066, 30 days from the purchase)."""
+    if not b or 1 + 21 * b[0] > len(b):
+        return None
+    out: dict[int, list[int]] = {}
+    for i in range(b[0]):
+        bid, _flag, start, end = struct.unpack_from("<IBQQ", b, 1 + 21 * i)
+        out[bid] = [start, end]
     return out
 
 
@@ -192,7 +209,7 @@ class Game:
 
     def _merge(self, key: str, now: float) -> None:
         c = self._char(key)
-        for part in ("tickets", "missions", "pvp", "duties"):
+        for part in ("tickets", "missions", "pvp", "duties", "benefits"):
             if part in self.pending:
                 c[part] = self.pending[part]
                 c[part + "At"] = self.pending[part + "At"]
@@ -229,6 +246,10 @@ class Game:
             if (r := parse_pvp(b)) is not None:
                 self._start_pending(now)["pvp"] = {str(k): v for k, v in r.items()}
                 self.pending["pvpAt"] = now
+        elif op == OP_BENEFITS:
+            if (r := parse_benefits(b)) is not None:
+                self._start_pending(now)["benefits"] = {str(k): v for k, v in r.items()}
+                self.pending["benefitsAt"] = now
         elif op == OP_DUTY_BOARD:
             # At a zone entry it waits with the other lists; later, a change to whoever is logged in.
             if (d := parse_duty_board(b)) is not None:

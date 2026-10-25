@@ -15,6 +15,8 @@
  *                            detach(on) (a window of its own, moved like the HUD); the 'hud' event
  *                            ({ shown, detached }) says when either changes
  *   nyerk.on('storage', fn)  { key, value }: its storage changed (from any of its pages)
+ *   nyerk.map.markers(list)  its markers on the Collection Map ('map'), replacing the last list:
+ *                            [{ world, position: [x, y], color: '#rrggbb', label }]; [] clears them
  *   nyerk.ready              a promise, once the first snapshot is in
  * Every page also posts its height to the window holding it, which a HUD section is sized by.
  * Errors thrown in the page go to the app's log and the addon's card in Settings.
@@ -89,6 +91,9 @@ export const SDK_JS = String.raw`(() => {
       detached: null,
       show: (on) => call('hud.show', on === true),
       detach: (on) => call('hud.detach', on === true),
+    },
+    map: {
+      markers: (list) => call('map.markers', Array.isArray(list) ? list : []),
     },
   }
   window.nyerk = nyerk

@@ -413,12 +413,29 @@ def parse_cast(pkt: bytes) -> tuple[int, float, float] | None:
     under MAX_HEIGHT. That last check matters: some `03 38` carry a field reading 1,413.8 just
     before the position, which passed as an x and shifted the read by one (x 1414, y the real x, z
     the real y): about 1 cast position in 11 was wrong that way (6,006 of 67,950 in gartua,
-    pvp_kills and gather_move), the real y as a height far too high."""
+    pvp_kills and gather_move), the real y as a height far too high.
+
+    The height check only catches that where the real y is over 100,000 away from 0: elsewhere
+    (2026-10-23: Altgard and Ellun, y within +-100,000) the shifted read passed and put you 120-130 km
+    off, at x 1414. The field is a varint (`c1 b8 b0 44`, `87 ee c8 44`, `a1 b9 c3 48`: some read as
+    1,413.8, 1,607.5, 400,845), so a `03 38` is read by its layout instead: `<target varint> <skill
+    u32> <u8> <varint> <x y z>` (in all captures 23,915 of 26,771 read so, 4,277 of them misread by
+    the scan; the rest are positions under 1,000, None as before)."""
     if opcode(pkt) not in OP_CASTS:
         return None
     b = _body(pkt)
     actor, n = read_varint(b, 0)
     if not n:
+        return None
+    if opcode(pkt) == (0x03, 0x38):
+        _target, m = read_varint(b, n + 1)
+        _field, k = read_varint(b, n + 1 + m + 5)
+        off = n + 1 + m + 5 + k
+        if not m or not k or off + 12 > len(b):
+            return None
+        x, y, z = _f32(b, off), _f32(b, off + 4), _f32(b, off + 8)
+        if 1000 < abs(x) < 500_000 and 1000 < abs(y) < 500_000 and abs(z) < MAX_HEIGHT:
+            return actor, x, y
         return None
     for off in range(n + 6, min(len(b) - 12, n + 24)):
         x, y, z = _f32(b, off), _f32(b, off + 4), _f32(b, off + 8)

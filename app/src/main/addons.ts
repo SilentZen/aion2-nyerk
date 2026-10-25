@@ -14,6 +14,8 @@
  * - Every frame's call comes through `addons:call`, relayed by the window holding it, and is
  *   checked here against the addon's permissions. The app's events reach an addon only where a
  *   permission allows (ADDON_EVENTS), through the broadcast tap.
+ * - Markers an addon puts on the Collection Map (`map.markers`, the `map` permission) are kept here
+ *   until it replaces them, is switched off or reloaded, and go to every window as `addons:markers`.
  */
 import { app, protocol, shell } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
@@ -26,11 +28,14 @@ import {
   addonPath,
   isSettingKey,
   MANIFEST_FILE,
+  mapMarkers,
   MAX_MANIFEST_BYTES,
   RESERVED_EVENT_NAMES,
   resolveAddons,
   settingValue,
   type AddonInfo,
+  type AddonMapMarker,
+  type AddonMarkers,
   type AddonPermission,
   type AddonsStatus,
   type FoundFolder,
@@ -61,6 +66,8 @@ const errors = new Map<string, string>()
 const emitted = new Map<string, Map<string, unknown>>()
 const storage = new Map<string, Record<string, unknown>>()
 const lastNotify = new Map<string, number>()
+/** Each addon's markers on the Collection Map: its latest list, until it is switched off or reloaded. */
+const markers = new Map<string, AddonMapMarker[]>()
 
 export const addonsFolder = (): string => join(app.getPath('userData'), 'addons')
 
@@ -131,6 +138,20 @@ const status = (): AddonsStatus => ({
   generation,
 })
 const announce = (): void => broadcast('addons:changed', status())
+
+/** Every addon's markers, with its name for the map's key; none from an addon that is not on. */
+const allMarkers = (): AddonMarkers[] =>
+  [...markers].flatMap(([id, list]) => {
+    const addon = running(id)
+    return addon && list.length ? [{ addon: id, name: addon.name, markers: list }] : []
+  })
+const announceMarkers = (): void => broadcast('addons:markers', allMarkers())
+/** Its markers gone (switched off, reloaded), and the map told when it had any. */
+function dropMarkers(id?: string): void {
+  const had = id ? markers.delete(id) : markers.size > 0
+  if (!id) markers.clear()
+  if (had) announceMarkers()
+}
 
 /** An addon switched on and able to run. */
 const running = (id: string): AddonInfo | undefined => list.find((a) => a.id === id && a.state === 'on')
@@ -373,6 +394,16 @@ function call(id: string, method: string, args: unknown[]): unknown {
       }
       return null
     }
+    case 'map.markers': {
+      need(addon, 'map')
+      const list = mapMarkers(args[0])
+      // Nothing to tell when it had none and still has none (a page clearing on every quiet tick).
+      if (!list.length && !markers.has(id)) return 0
+      if (list.length) markers.set(id, list)
+      else markers.delete(id)
+      announceMarkers()
+      return list.length
+    }
     case 'hud.show':
       return setHudPlace(addon, { shown: args[0] === true })
     case 'hud.detach':
@@ -533,6 +564,7 @@ export const addons = {
     errors.clear()
     emitted.clear()
     storage.clear()
+    dropMarkers()
     generation++
     startWatch()
     apply(hadNative || list.some((a) => a.state === 'on' && a.native))
@@ -552,6 +584,7 @@ export const addons = {
     list = list.map((a) => (a.id === id ? { ...a, state: on ? 'on' : 'off', isNew: false } : a))
     errors.delete(id)
     emitted.delete(id)
+    dropMarkers(id)
     log(`addons: ${id} switched ${on ? 'on' : 'off'}`)
     apply(false)
     announce()
@@ -572,4 +605,5 @@ export const addons = {
     announce()
   },
   call,
+  markers: allMarkers,
 }

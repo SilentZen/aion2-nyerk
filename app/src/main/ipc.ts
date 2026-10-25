@@ -166,6 +166,7 @@ export function registerIpc(): void {
       filter: strings(view.filter),
       genus: strings(view.genus),
       continent: strings(view.continent),
+      continentOnly: view.continentOnly === true,
     })
   })
 
@@ -182,4 +183,5 @@ export function registerIpc(): void {
     if (!isAddonId(id) || typeof method !== 'string') throw new Error('bad addon call')
     return addons.call(id, method, Array.isArray(args) ? args : [])
   })
+  handle('addons:markers', () => addons.markers())
 }

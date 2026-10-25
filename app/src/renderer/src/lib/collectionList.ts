@@ -10,7 +10,7 @@ import { blankPet, MAX_LEVEL, totalSouls, type Pet } from '@shared/tracker.ts'
 
 export function useCollectionList() {
   const store = useApp()
-  const { query, sort, filter, genus, continent } = toRefs(store.collectionView)
+  const { query, sort, filter, genus, continent, continentOnly } = toRefs(store.collectionView)
 
   // Around you: the pets whose soul monsters the tracker sees loaded near you.
   const spawns = useSpawns()
@@ -18,14 +18,15 @@ export function useCollectionList() {
   /** The continents each pet's soul monsters spawn on (Elyos, Asmodian, Abyss). */
   const continents = computed(() => (spawns.value ? petContinents(spawns.value) : new Map<number, Set<string>>()))
   /**
-   * The pet is found on exactly the chosen continents: one pill is the pets only found there,
-   * Elyos + Asmodian the pets found on both and not in the Abyss.
+   * The pet is found on any of the chosen continents. With Only, on exactly the chosen ones: one
+   * pill is the pets only found there, Elyos + Asmodian the pets found on both and not in the Abyss.
    */
   const onContinent = (id: number): boolean => {
     const chosen = continent.value
     if (!chosen.length) return true
     const on = continents.value.get(id)
-    return !!on && on.size === chosen.length && chosen.every((c) => on.has(c))
+    if (!on) return false
+    return continentOnly.value ? on.size === chosen.length && chosen.every((c) => on.has(c)) : chosen.some((c) => on.has(c))
   }
   // A pet has one genus, so several genus pills show any of them.
   const ofGenus = (id: number): boolean => !genus.value.length || genus.value.includes(petInfo(id)?.genus as Genus)
@@ -39,13 +40,16 @@ export function useCollectionList() {
     }
     return counts
   })
-  /** Pets of the chosen genera found only on each continent, for the continent chips. */
+  /**
+   * Pets of the chosen genera found on each continent, for the continent chips; with Only, the
+   * ones found there and nowhere else. A pet on two continents counts on both.
+   */
   const continentCounts = computed(() => {
     const counts = new Map<string, number>()
     for (const p of store.pets) {
       if (!ofGenus(p.id)) continue
       const on = continents.value.get(p.id)
-      if (on?.size === 1) for (const c of on) counts.set(c, (counts.get(c) ?? 0) + 1)
+      if (on && (!continentOnly.value || on.size === 1)) for (const c of on) counts.set(c, (counts.get(c) ?? 0) + 1)
     }
     return counts
   })

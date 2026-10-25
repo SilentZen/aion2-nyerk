@@ -16,7 +16,7 @@ import { MAX_LEVEL, nextLevelSouls, type Pet } from '@shared/tracker.ts'
 
 const store = useApp()
 // In the store, so they survive the tab being rebuilt (after a pet's map closes).
-const { query, sort, filter, genus, continent } = toRefs(store.collectionView)
+const { query, sort, filter, genus, continent, continentOnly } = toRefs(store.collectionView)
 const SORTS: { value: typeof sort.value; label: string }[] = [
   { value: 'souls', label: 'Most souls' },
   { value: 'level', label: 'Level' },
@@ -199,10 +199,26 @@ function commit(): void {
               'rounded-full border px-2.5 py-0.5 text-xs transition',
               continent.includes(c.id) ? 'border-accent bg-accent-soft text-accent' : 'border-light text-darker hover:text-default',
             ]"
-            :title="`Alone: pets only found ${c.label === 'Abyss' ? 'in the Abyss' : `in ${c.label} zones`}. With other continents: pets found on all of them and nowhere else`"
+            :title="
+              continentOnly
+                ? `Alone: pets only found ${c.label === 'Abyss' ? 'in the Abyss' : `in ${c.label} zones`}. With other continents: pets found on all of them and nowhere else`
+                : `Pets found ${c.label === 'Abyss' ? 'in the Abyss' : `in ${c.label} zones`}, wherever else they are found too`
+            "
             @click="toggle(continent, c.id)"
           >
             {{ c.label }} <span class="tabular-nums opacity-60">{{ continentCounts.get(c.id) ?? 0 }}</span>
+          </button>
+          <span class="mx-0.5 my-1 w-px self-stretch bg-[color:var(--gray-4)]" />
+          <button
+            type="button"
+            :class="[
+              'rounded-full border px-2.5 py-0.5 text-xs transition',
+              continentOnly ? 'border-accent bg-accent-soft text-accent' : 'border-light text-darker hover:text-default',
+            ]"
+            title="Only the pets found on exactly the chosen continents and nowhere else"
+            @click="continentOnly = !continentOnly"
+          >
+            Only
           </button>
         </div>
       </div>

@@ -21,6 +21,16 @@ export interface Point {
   y: number
 }
 
+/** The shapes a map marker can take. */
+export const MARK_SHAPES = ['circle', 'square', 'diamond', 'triangle'] as const
+export type MarkShape = (typeof MARK_SHAPES)[number]
+/** A marker's look picked on the Collection Map; null keeps the map's own (its colour, its shape). */
+export interface MarkStyle {
+  color: string | null
+  shape: MarkShape | null
+}
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+
 export interface Settings {
   /** Where the floating icon sits, in screen DIPs; null = bottom right of the primary display. */
   bubble: Point | null
@@ -66,6 +76,12 @@ export interface Settings {
    * centred); and the size of the collection's map as a minimap.
    */
   mapWindow: { position: Point | null; width: number; height: number; minimap: { width: number; height: number } }
+
+  /**
+   * The Collection Map's markers as you styled them: each pet's spawns by pet id, and each kind of
+   * addon marker by `<addon id>/<label>` (Nearby Nodes' "Odyle"). Only the ones you changed.
+   */
+  mapStyles: { pets: Record<string, MarkStyle>; marks: Record<string, MarkStyle> }
 
   /** The kill feed window (PvP Log → Open HUD): open, and where (null = top right). */
   killFeed: { open: boolean; position: Point | null }
@@ -164,6 +180,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   merchantWindow: null,
   mapWindow: { position: null, width: 900, height: 640, minimap: { width: 320, height: 320 } },
   killFeed: { open: false, position: null },
+  mapStyles: { pets: {}, marks: {} },
   hideFromCapture: false,
   faction: 'elyos',
   playerLevel: null,
@@ -286,6 +303,31 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
       return {
         python: typeof v.python === 'string' ? v.python.trim() : '',
         dataFile: typeof v.dataFile === 'string' ? v.dataFile.trim() : '',
+      } as Settings[K]
+    }
+    case 'mapStyles': {
+      const v = (value ?? {}) as Partial<Settings['mapStyles']>
+      const styles = (from: unknown, key: (k: string) => boolean): Record<string, MarkStyle> =>
+        Object.fromEntries(
+          Object.entries(typeof from === 'object' && from !== null ? from : {})
+            .filter(([k, st]) => key(k) && typeof st === 'object' && st !== null)
+            .map(([k, st]): [string, MarkStyle] => {
+              const x = st as Partial<MarkStyle>
+              return [
+                k,
+                {
+                  color: typeof x.color === 'string' && HEX_COLOR.test(x.color) ? x.color.toLowerCase() : null,
+                  shape: MARK_SHAPES.includes(x.shape as MarkShape) ? (x.shape as MarkShape) : null,
+                },
+              ]
+            })
+            // A style with neither picked is the map's own: not kept.
+            .filter(([, st]) => st.color !== null || st.shape !== null)
+            .slice(0, 1000),
+        )
+      return {
+        pets: styles(v.pets, (k) => /^\d{1,10}$/.test(k)),
+        marks: styles(v.marks, (k) => k.length <= 140 && /^[a-z0-9][a-z0-9-]{0,39}\//.test(k)),
       } as Settings[K]
     }
     case 'addons': {

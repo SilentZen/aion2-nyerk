@@ -170,6 +170,31 @@
     return { week: weekStart, base, since: base === record ? readAt : weekStart, last: record, lastAt: readAt }
   }
 
+  /** The membership's benefits (`3b e3`, docs/FINDINGS.md): all bought together, 30 days each. */
+  const MEMBERSHIP = ['1058', '1059', '1061', '1062', '1063', '1064', '1065', '1066']
+
+  /**
+   * When the membership the game listed ends (`benefits`: { id: [start, end] }): 0 when none was
+   * listed, null when nothing was read (the toggle then decides).
+   */
+  function membershipEnd(benefits) {
+    if (!benefits) return null
+    return Math.max(0, ...MEMBERSHIP.map((id) => benefits[id]?.[1] ?? 0))
+  }
+
+  /**
+   * Membership on a server: as the game says (`end` from membershipEnd), unless the player set it
+   * by hand. A hand setting (`{ on, game }`, `game` what the game said then; `true` from before
+   * the game was read) holds until what the game says changes: a purchase, or the end passing.
+   * `auto`: what the game says (null when not read).
+   */
+  function memberOf(set, end, now) {
+    const auto = end === null ? null : end > now
+    const hand = set === true ? { on: true, game: null } : set
+    const held = hand && hand.game === auto
+    return { member: held ? hand.on : auto === true, auto, overridden: Boolean(held && auto !== null) }
+  }
+
   /** "2d 4h", "3h 12m", "8m". */
   function duration(ms) {
     const m = Math.max(0, Math.round(ms / 60_000))
@@ -182,7 +207,7 @@
 
   const api = {
     DAY, capOf, resetOf, usedOf, doneOf, setUsed, setDone, resetsBetween, bankNow, setValue, shown, scopeKey, isDone, duration,
-    lastReset, fromGame, missionProgress, pvpWeek, pvpBase,
+    lastReset, fromGame, missionProgress, pvpWeek, pvpBase, membershipEnd, memberOf,
   }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.taskLogic = api

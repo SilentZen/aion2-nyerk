@@ -18,7 +18,7 @@
  */
 import { compareVersions } from './bundle.ts'
 
-export const ADDON_API_VERSION = '1.3.0'
+export const ADDON_API_VERSION = '1.4.0'
 
 /**
  * Addons' pages load from `nyerk-addon://<id>/<path>`, and the SDK from the same origin, under
@@ -50,6 +50,7 @@ export const ADDON_PERMISSIONS = {
   'events:pvp': 'The PvP kill feed',
   'events:timers': 'Timers: their alerts, next starts and the resets',
   notify: 'Chime and shake the bubble',
+  map: 'Put markers on the Collection Map',
   storage: 'Keep its own data',
 } as const
 
@@ -389,6 +390,49 @@ export interface AddonsStatus {
   changed: boolean
   /** Counts reloads: the windows build their addon frames again when it moves. */
   generation: number
+}
+
+/** One marker an addon puts on the Collection Map (`nyerk.map.markers`, the `map` permission, 1.4). */
+export interface AddonMapMarker {
+  /** The zone, as the app's `nearby.world`. */
+  world: number
+  /** The map data's coordinates, as `nearby.position`. */
+  position: [number, number]
+  /** `#rgb` or `#rrggbb`. */
+  color: string
+  /** Shown on hover. */
+  label: string | null
+}
+
+/** The markers each addon has on the map, with its name for the map's key. */
+export interface AddonMarkers {
+  addon: string
+  name: string
+  markers: AddonMapMarker[]
+}
+
+/** At most this many markers per addon: more are dropped. */
+export const MAX_MAP_MARKERS = 2000
+const COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+/**
+ * The markers an addon asked for, as the map draws them: anything that is not one is left out
+ * (a bad colour falls back to the accent), and only the first MAX_MAP_MARKERS are kept.
+ */
+export function mapMarkers(v: unknown): AddonMapMarker[] {
+  const out: AddonMapMarker[] = []
+  for (const item of Array.isArray(v) ? v : []) {
+    if (out.length >= MAX_MAP_MARKERS) break
+    const m = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>
+    const world = m['world']
+    const at = m['position']
+    if (!Number.isInteger(world) || !Array.isArray(at) || at.length !== 2) continue
+    const [x, y] = at as unknown[]
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) continue
+    const color = typeof m['color'] === 'string' && COLOR.test(m['color']) ? m['color'] : '#a3acff'
+    out.push({ world: world as number, position: [x, y], color, label: text(m['label'], 80) })
+  }
+  return out
 }
 
 /** Main to an addon's frames: one of its events. */

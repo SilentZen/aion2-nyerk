@@ -57,6 +57,8 @@ export const useApp = defineStore('app', () => {
     filter: [] as ('nearby' | 'pinned' | 'unfinished' | 'session')[],
     genus: [] as Genus[],
     continent: [] as Continent[],
+    /** The continent pills match pets found on exactly those continents and nowhere else. */
+    continentOnly: false,
   })
   /** The map window: the pet whose drop locations it is showing, if any. */
   const openPetId = ref<number | null>(null)

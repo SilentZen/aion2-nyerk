@@ -3,7 +3,7 @@
  * handlers against it, preload builds the bridge from it, the renderer calls the bridge. The
  * pattern is marnis-app's (shared/ipc-contract.ts), with this app's channels.
  */
-import type { AddonEvent, AddonsStatus } from './addons.ts'
+import type { AddonEvent, AddonMarkers, AddonsStatus } from './addons.ts'
 import type { KinaSession } from './kina.ts'
 import type { Point, SettingKey, Settings } from './settings.ts'
 import type { FieldBosses, TimerAlert, TimerId, TimersState } from './timers.ts'
@@ -20,6 +20,7 @@ export interface CollectionView {
   filter: string[]
   genus: string[]
   continent: string[]
+  continentOnly: boolean
 }
 
 /** The panel's edges away from the bubble: the ones it grows from. */
@@ -111,6 +112,8 @@ export interface InvokeChannels {
    * so the addon): what the SDK asks for. Main checks it against the addon's permissions.
    */
   'addons:call': { args: [id: string, method: string, args: unknown[]]; result: unknown }
+  /** The markers the addons switched on have put on the Collection Map. */
+  'addons:markers': { args: []; result: AddonMarkers[] }
 }
 
 /** Main → renderer, broadcast. */
@@ -158,6 +161,8 @@ export interface EventChannels {
   'addons:event': AddonEvent
   /** An addon asked for attention: the bubble chimes and pulses. */
   'addons:notify': { addon: string }
+  /** The addons' markers on the Collection Map, whenever one of them changes. */
+  'addons:markers': AddonMarkers[]
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -182,9 +187,9 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'merchant:moveTo', 'merchant:dragEnd', 'merchant:resize', 'merchant:close',
   'killfeed:open', 'killfeed:close', 'killfeed:moveTo', 'killfeed:dragEnd', 'killfeed:resize', 'timers:get',
   'map:showPet', 'map:showCollection', 'map:get', 'map:moveTo', 'map:dragEnd', 'map:close', 'map:minimap', 'collection:view', 'timers:dismiss', 'timers:open',
-  'addons:get', 'addons:openFolder', 'addons:reload', 'addons:setEnabled', 'addons:setSetting', 'addons:call',
+  'addons:get', 'addons:openFolder', 'addons:reload', 'addons:setEnabled', 'addons:setSetting', 'addons:call', 'addons:markers',
 ]
 
 export const EVENT_CHANNELS: readonly EventChannel[] = [
-  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'map:show', 'map:collectionView', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'timers:state', 'hud:editing', 'panel:visible', 'panel:edges', 'update:status', 'addons:changed', 'addons:event', 'addons:notify',
+  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'map:show', 'map:collectionView', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'timers:state', 'hud:editing', 'panel:visible', 'panel:edges', 'update:status', 'addons:changed', 'addons:event', 'addons:notify', 'addons:markers',
 ]
