@@ -1,7 +1,7 @@
 {
   "id": "input-overlay",
   "name": "Input Overlay",
-  "version": "1.0.31",
+  "version": "1.0.0",
   "author": "Codex",
   "description": "Shows recent key presses and mouse clicks in a movable overlay. While enabled, it listens globally and displays key names locally; input is not stored or sent anywhere.",
   "nyerk": "^1",
